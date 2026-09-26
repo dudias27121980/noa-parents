@@ -28,7 +28,7 @@ export function RightSidebar({
         <Lock size={14} />
         ערוצי שליטה SECURE-V4
       </header>
-      <nav className="grid grid-cols-2 gap-1 p-2 sm:grid-cols-3 lg:grid-cols-1">
+      <nav aria-label="ערוצי שליטה" className="grid grid-cols-2 gap-1 p-2 sm:grid-cols-3 lg:grid-cols-1">
         {SCREENS.map(({ id, label, icon: Icon }) => {
           const badge = badgeFor(id);
           const active = currentScreen === id;

@@ -68,7 +68,7 @@ export function HeaderNav({
           </div>
         </div>
 
-        <nav className="order-3 flex w-full gap-1 overflow-x-auto lg:order-none lg:w-auto lg:flex-1 lg:justify-center">
+        <nav aria-label="ניווט ראשי" className="order-3 flex w-full gap-1 overflow-x-auto lg:order-none lg:w-auto lg:flex-1 lg:justify-center">
           {SCREENS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
