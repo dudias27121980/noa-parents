@@ -19,6 +19,7 @@ export const STORAGE_KEYS = [
   'logs',
   'frequency',
   'shift',
+  'agencies',
 ] as const;
 export type StorageKey = (typeof STORAGE_KEYS)[number];
 

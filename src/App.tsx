@@ -3,6 +3,7 @@ import {
   ALERT_LEVELS,
   ViewScreen,
   AlertLevel,
+  Agency,
   Milestone,
   MilestoneStatus,
   TacticalUnit,
@@ -30,7 +31,7 @@ import { TacticalMapScreen } from './components/TacticalMapScreen';
 import { INCIDENT_STATUS_LABEL, IncidentPatch, IncidentsScreen } from './components/IncidentsScreen';
 import { ForcesScreen, UnitPatch } from './components/ForcesScreen';
 import { UNIT_STATUS } from './components/TacticalMapScreen';
-import { AgenciesScreen } from './components/AgenciesScreen';
+import { AGENCY_STATUS, AgenciesScreen, AgencyPatch } from './components/AgenciesScreen';
 import { MilestoneModal } from './components/MilestoneModal';
 import { LprModal } from './components/LprModal';
 import { SimModal } from './components/SimModal';
@@ -69,6 +70,9 @@ const isIncidents = arrayOf<TacticalIncident>({
 const isUnits = arrayOf<TacticalUnit>({
   id: 'string', callSign: 'string', type: 'string', status: 'string', commander: 'string', personnel: 'number',
   sector: 'string', x: 'number', y: 'number', lastContact: 'string', signalStrength: 'number',
+});
+const isAgencies = arrayOf<Agency>({
+  id: 'string', name: 'string', role: 'string', liaison: 'string', status: 'string', lastSync: 'string',
 });
 const isFrequency = (v: unknown): v is string => typeof v === 'string' && /^\d{4}$/.test(v);
 const isShift = (v: unknown): v is typeof DEFAULT_SHIFT =>
@@ -119,7 +123,7 @@ export default function App() {
     'frequency', () => DEFAULT_MAIN_FREQUENCY, isFrequency, onSaveError
   );
   const [shift, setShift] = usePersistentState('shift', () => DEFAULT_SHIFT, isShift, onSaveError);
-  const [agencies] = useState(INITIAL_AGENCIES);
+  const [agencies, setAgencies] = usePersistentState('agencies', () => INITIAL_AGENCIES, isAgencies, onSaveError);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Modals state
@@ -184,7 +188,13 @@ export default function App() {
         return { ...k, value: String(personnel), subLabel: `${onAir.length} צוותים בקשר` };
       }
       if (k.action === 'agencies') {
-        return { ...k, value: `${connected}/${agencies.length}` };
+        // Name the worst-off agency, so the card never contradicts the agencies screen
+        const problem =
+          agencies.find((a) => a.status === 'disconnected') ?? agencies.find((a) => a.status === 'degraded');
+        const subLabel = problem
+          ? `${problem.name} ${problem.status === 'disconnected' ? 'מנותק' : 'בתקשורת לקויה'}`
+          : 'כל הגורמים מחוברים';
+        return { ...k, value: `${connected}/${agencies.length}`, subLabel };
       }
       return k;
     });
@@ -228,6 +238,7 @@ export default function App() {
     setUnits(INITIAL_UNITS);
     setLogs(buildDemoLogs());
     setAlertLevel(DEFAULT_ALERT);
+    setAgencies(INITIAL_AGENCIES);
     setMainFrequency(DEFAULT_MAIN_FREQUENCY);
     setShift(DEFAULT_SHIFT);
     setSelectedMilestoneId(null);
@@ -392,6 +403,38 @@ export default function App() {
     appendLog('NOMINAL', 'מפקד משמרת', `עדכון משמרת: משמרת ${next.shiftName}, מפקד ${next.commanderName}`);
   };
 
+  const handleEditAgency = (id: string, patch: AgencyPatch) => {
+    const target = agencies.find((a) => a.id === id);
+    if (!target) return;
+    const changed = (Object.keys(patch) as (keyof AgencyPatch)[]).some((k) => patch[k] !== target[k]);
+    if (!changed) return;
+    const statusChanged = patch.status !== undefined && patch.status !== target.status;
+    setAgencies((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, ...patch, lastSync: statusChanged ? clockTime() : a.lastSync } : a))
+    );
+
+    const contact = (a: Pick<Agency, 'frequency' | 'phone'>) => (a.frequency ? `תדר ${a.frequency}` : `טלפון ${a.phone ?? '—'}`);
+    const next = { ...target, ...patch };
+    const notes: string[] = [];
+    if (contact(next) !== contact(target)) notes.push(`${contact(target)} ← ${contact(next)}`);
+    if (statusChanged) notes.push(`סטטוס: ${AGENCY_STATUS[target.status].label} ← ${AGENCY_STATUS[next.status].label}`);
+    if (next.liaison !== target.liaison) notes.push(`קישור: ${target.liaison || '—'} ← ${next.liaison || '—'}`);
+    appendLog(
+      next.status === 'disconnected' && statusChanged ? 'WARNING' : 'NOMINAL',
+      'תיאום גורמי חוץ',
+      `עריכת גורם חוץ ${next.name}${notes.length ? ` (${notes.join(', ')})` : ''}`
+    );
+  };
+
+  const handleContactAgency = (agency: Agency) => {
+    showToast(
+      agency.frequency
+        ? `קריאה ל${agency.name} בתדר ${agency.frequency} - ${agency.liaison || 'מוקד'}`
+        : `חיוג ל${agency.name}: ${agency.phone ?? ''} - ${agency.liaison || 'מוקד'}`,
+      3500
+    );
+  };
+
   const handleAlertLevelChange = (level: AlertLevel) => {
     setAlertLevel(level);
     appendLog(level === 'פע״מ - פקודת לחימה' ? 'CRITICAL' : 'WARNING', 'מפקד משמרת', `שינוי רמת כוננות: ${level}`);
@@ -466,7 +509,14 @@ export default function App() {
           <ForcesScreen units={units} onPingUnit={handlePingUnit} onUpdateUnit={handleEditUnit} audioEnabled={audioEnabled} />
         );
       case 'agencies':
-        return <AgenciesScreen agencies={agencies} audioEnabled={audioEnabled} />;
+        return (
+          <AgenciesScreen
+            agencies={agencies}
+            onUpdateAgency={handleEditAgency}
+            onContactAgency={handleContactAgency}
+            audioEnabled={audioEnabled}
+          />
+        );
     }
   };
 
