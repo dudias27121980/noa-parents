@@ -12,10 +12,12 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cert": "node --import tsx server/make-cert.ts"
   },
   "dependencies": {
     "lucide-react": "^1.48.0",
+    "node-forge": "^1.4.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "tsx": "^4.23.15",
@@ -28,6 +30,7 @@
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
     "@types/node": "^26.6.3",
+    "@types/node-forge": "^1.3.14",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/ws": "^8.18.1",
