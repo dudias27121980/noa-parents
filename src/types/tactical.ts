@@ -23,7 +23,43 @@ export interface Milestone {
   description: string;
   statusType: MilestoneStatus;
   statusBadge: string;
-  tasks: string[];
+  tasks: MilestoneTask[];
+}
+
+export interface MilestoneTask {
+  /** Unique within its milestone */
+  id: string;
+  text: string;
+  done: boolean;
+}
+
+export type LprHitStatus = 'open' | 'handled';
+
+/** A licence-plate-recognition alert (camera hit on a watch list) */
+export interface LprHit {
+  id: string;
+  date: string;
+  time: string;
+  plate: string;
+  vehicle: string;
+  camera: string;
+  reason: string;
+  status: LprHitStatus;
+}
+
+export type RouteStatus = 'open' | 'partial' | 'closed';
+
+export interface TacticalRoute {
+  id: string;
+  name: string;
+  status: RouteStatus;
+  note: string;
+}
+
+export interface SimScenario {
+  id: string;
+  name: string;
+  description: string;
 }
 
 export type KpiTone = 'critical' | 'warning' | 'nominal' | 'info';

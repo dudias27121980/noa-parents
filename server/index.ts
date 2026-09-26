@@ -40,6 +40,8 @@ const port = Number(process.env.PORT ?? (tls ? 8443 : 8787));
 // Next to HTTPS, a plain-HTTP port redirects to it and hands out the CA certificate; HTTP_PORT=0 turns it off
 const httpPort = tls ? Number(process.env.HTTP_PORT ?? 8080) : 0;
 
+const trustProxy = Math.max(0, Number.parseInt(process.env.TRUST_PROXY ?? '0', 10) || 0);
+
 mkdirSync(dirname(dbPath), { recursive: true });
 
 const server = createServer({
@@ -48,7 +50,7 @@ const server = createServer({
   staticDir: production ? 'dist' : undefined,
   sessionSecret: process.env.SESSION_SECRET,
   // Number of proxies in front of the server (Render: 1); unset/0 = none
-  trustProxy: Math.max(0, Number.parseInt(process.env.TRUST_PROXY ?? '0', 10) || 0),
+  trustProxy,
   tls,
 });
 
@@ -59,7 +61,8 @@ if (tls && httpPort) {
   const redirectPort = await server.listenRedirect(httpPort, actualPort, host);
   console.log(`HTTP on port ${redirectPort} redirects to HTTPS; new stations get the CA at http://<server>:${redirectPort}/ca.crt`);
 }
-if (production && !tls) {
+// Behind a proxy (TRUST_PROXY) HTTPS is the proxy's job, e.g. Render
+if (production && !tls && trustProxy === 0) {
   console.warn('Serving plain HTTP: the access code and data cross the network unencrypted. Run `npm run cert` to enable HTTPS.');
 }
 

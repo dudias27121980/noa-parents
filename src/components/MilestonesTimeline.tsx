@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { CheckCircle2, CircleDot, Clock3, Flag, Info, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle2, CircleDot, Clock3, Flag, Info } from 'lucide-react';
 import { Milestone, MilestoneStatus } from '../types/tactical';
-import { Field, InlineEditor, Panel, fieldClass } from './ui';
+import { AddTile, DeleteButton, Field, InlineEditor, Panel, fieldClass } from './ui';
 import { playClick } from '../utils/audio';
 import { STATUS_BADGE, milestoneProgress, milestoneWindow, windowLabel } from '../utils/schedule';
 import { hhmm, isIsoDate, isoDate, parseHHMM } from '../utils/time';
@@ -146,6 +146,19 @@ export function MilestonesTimeline({
                       <span>({m.durationMin} דק׳)</span>
                     </span>
                     <span>אחראי: {m.owner}</span>
+                    <button
+                      onClick={() => {
+                        click();
+                        onSelectMilestone(m);
+                      }}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                      className={`rounded px-1.5 py-0.5 hover:bg-white/10 ${
+                        m.tasks.length && m.tasks.every((t) => t.done) ? 'text-emerald-300' : 'text-cyan-300'
+                      }`}
+                      title="משימות השלב"
+                    >
+                      משימות {m.tasks.filter((t) => t.done).length}/{m.tasks.length}
+                    </button>
                   </div>
 
                   <div className="mt-2 flex items-center gap-3">
@@ -190,17 +203,14 @@ export function MilestonesTimeline({
         {/* Last row: add a new schedule line */}
         <li className="relative">
           <span className="absolute -start-[27px] top-3 h-3.5 w-3.5 rounded-full border-2 border-dashed border-slate-500 bg-[#0b1426]" />
-          <button
+          <AddTile
+            label="הוספת שורה ללו״ז"
+            disabled={busy}
             onClick={() => {
-              if (busy) return;
               click();
               setDraft(newDraft());
             }}
-            disabled={busy}
-            className="flex w-full items-center justify-center gap-2 rounded border-2 border-dashed border-cyan-800/70 p-3 text-sm font-bold text-cyan-300/80 transition hover:border-cyan-500 hover:bg-cyan-500/5 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Plus size={18} /> הוספת שורה ללו״ז
-          </button>
+          />
         </li>
       </ol>
     </Panel>
@@ -230,7 +240,6 @@ function MilestoneEditor({
   const [duration, setDuration] = useState(String(milestone.durationMin));
   const [owner, setOwner] = useState(milestone.owner);
   const [description, setDescription] = useState(milestone.description);
-  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const durationNum = Number(duration);
   const errors = {
@@ -261,27 +270,7 @@ function MilestoneEditor({
       onCancel={onCancel}
       invalid={invalid}
       className="grid-cols-2 sm:grid-cols-6"
-      extraActions={
-        confirmDelete ? (
-          <span className="flex items-center gap-2 text-xs text-red-300">
-            למחוק את השורה?
-            <button type="button" onClick={onDelete} className="rounded bg-red-600 px-2 py-1 font-bold text-white hover:bg-red-500">
-              מחק
-            </button>
-            <button type="button" onClick={() => setConfirmDelete(false)} className="text-slate-400 hover:text-slate-200">
-              לא
-            </button>
-          </span>
-        ) : (
-          <button
-            type="button"
-            onClick={() => (isNew ? onCancel() : setConfirmDelete(true))}
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-red-300 hover:bg-red-500/10"
-          >
-            <Trash2 size={13} /> מחיקה
-          </button>
-        )
-      }
+      extraActions={isNew ? undefined : <DeleteButton onConfirm={onDelete} question="למחוק את השורה?" />}
     >
       <Field label="קוד" className="sm:col-span-1">
         <input className={fieldClass()} value={code} onChange={(e) => setCode(e.target.value)} dir="ltr" />

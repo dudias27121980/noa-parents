@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App';
 import { SharedStore } from './sync/store';
@@ -159,6 +159,17 @@ describe('forces, incidents and agencies', () => {
     expect(q.getByText(/סיור 22, רחפן תרמי/)).toBeInTheDocument();
   });
 
+  it('a newly opened incident appears at the top of the list', async () => {
+    const { user, q, goTo } = await openStation();
+    await goTo('אירועים');
+    await user.click(q.getByRole('button', { name: /פתיחת אירוע/ }));
+    await user.type(q.getByPlaceholderText('כותרת האירוע *'), 'האירוע החדש ביותר');
+    await user.click(q.getByRole('button', { name: 'פתח אירוע' }));
+    await q.findByText('האירוע החדש ביותר');
+    const titles = q.getAllByText(/^INC-\d+$/).map((el) => el.closest('li')!.textContent);
+    expect(titles[0]).toContain('האירוע החדש ביותר');
+  });
+
   it('edits an incident tier', async () => {
     const { user, q } = await openStation();
     await user.click(within(q.getByRole('navigation', { name: 'ניווט ראשי' })).getByRole('button', { name: /^אירועים/ }));
@@ -291,5 +302,127 @@ describe('connection to the server', () => {
     await a.q.findByRole('alert');
     const r = await a.store.dispatch({ type: 'frequency.set', frequency: '4444' });
     expect(r).toEqual({ ok: false, error: 'אין חיבור לשרת - השינוי לא נשמר' });
+  });
+});
+
+describe('everything is editable', () => {
+  it('phase tasks: tick off, add, rename and delete from the phase window', async () => {
+    const { user, q } = await openStation();
+    await user.click(q.getByRole('button', { name: 'משימות 1/4' }));
+    const dialog = within(q.getByRole('dialog'));
+
+    await user.click(dialog.getByRole('button', { name: 'לא בוצע: סריקת מבנים 1-12' }));
+    await dialog.findByRole('button', { name: 'בוצע: סריקת מבנים 1-12' });
+
+    await user.type(dialog.getByLabelText('משימה חדשה'), 'דיווח לחפ"ק{Enter}');
+    expect(await dialog.findByText('דיווח לחפ"ק')).toBeInTheDocument();
+
+    await user.dblClick(dialog.getByText('דיווח לחפ"ק'));
+    const edit = dialog.getByLabelText('עריכת משימה');
+    await user.clear(edit);
+    await user.type(edit, 'דיווח לחפ"ק כל 10 דקות{Enter}');
+    expect(await dialog.findByText('דיווח לחפ"ק כל 10 דקות')).toBeInTheDocument();
+
+    await user.click(dialog.getByRole('button', { name: 'מחיקת משימה: דיווח לחפ"ק כל 10 דקות' }));
+    await waitFor(() => expect(dialog.queryByText('דיווח לחפ"ק כל 10 דקות')).not.toBeInTheDocument());
+    expect(dialog.getByText('2/4 בוצעו')).toBeInTheDocument();
+  });
+
+  it('a completed phase can be reopened', async () => {
+    const { user, q, card } = await openStation();
+    await user.click(q.getAllByRole('button', { name: 'פרטים' })[0]);
+    await user.click(within(q.getByRole('dialog')).getByRole('button', { name: /ביטול השלמה/ }));
+    await waitFor(() => expect(card('כינוס מפקדים ותדריך פתיחה')).not.toHaveTextContent('הושלם בהצלחה'));
+  });
+
+  it('forces: add a new force and remove one', async () => {
+    const { user, q, goTo } = await openStation();
+    await goTo('כוחות');
+    await user.click(q.getByRole('button', { name: /הוספת כוח/ }));
+    await user.type(q.getByLabelText(/אות קריאה/), 'סיור 50');
+    await user.click(q.getByRole('button', { name: 'שמירה' }));
+    expect(await q.findByText('סיור 50', { exact: true })).toBeInTheDocument();
+
+    await user.dblClick(q.getByText('סיור 33', { exact: true }));
+    await user.click(q.getByRole('button', { name: /מחיקה/ }));
+    await user.click(q.getByRole('button', { name: 'מחק' }));
+    await waitFor(() => expect(q.queryByText('סיור 33', { exact: true })).not.toBeInTheDocument());
+  });
+
+  it('dragging a force on the map moves it for every station', async () => {
+    const a = await openStation('עמדה א');
+    const b = await openStation('עמדה ב');
+    await a.goTo('מפה טקטית');
+    await b.goTo('מפה טקטית');
+
+    const marker = a.q.getByRole('button', { name: 'נשר 1' });
+    const map = marker.parentElement!;
+    // jsdom has no layout: give the map a 1000x750 box and pointer capture
+    map.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 750, right: 1000, bottom: 750, x: 0, y: 0, toJSON() {} });
+    marker.setPointerCapture = () => {};
+
+    fireEvent.pointerDown(marker, { pointerId: 1, clientX: 480, clientY: 345 });
+    fireEvent.pointerMove(marker, { pointerId: 1, clientX: 200, clientY: 600 });
+    fireEvent.pointerUp(marker, { pointerId: 1, clientX: 200, clientY: 600 });
+
+    await waitFor(() => expect(server.core.getState().units.find((u) => u.callSign === 'נשר 1')).toMatchObject({ x: 20, y: 80 }));
+    await waitFor(() => expect(b.q.getByRole('button', { name: 'נשר 1' })).toHaveStyle({ left: '20%', top: '80%' }));
+  });
+
+  it('routes: closing a route updates the map board and the KPI card', async () => {
+    const { user, q, goTo } = await openStation();
+    await goTo('מפה טקטית');
+    await user.dblClick(q.getByText('ציר 60', { exact: true }));
+    await user.selectOptions(q.getByLabelText('מצב'), 'closed');
+    await user.type(q.getByLabelText('הערה'), 'חפץ חשוד');
+    await user.click(q.getByRole('button', { name: 'שמירה' }));
+
+    const kpi = q.getByText('צירים פתוחים').closest('button')!;
+    await waitFor(() => expect(kpi).toHaveTextContent('4/6'));
+    expect(kpi).toHaveTextContent('ציר 60 סגור');
+  });
+
+  it('LPR alerts: a new alert raises the count and alerts the other station; handling lowers it', async () => {
+    const a = await openStation('עמדה א');
+    const b = await openStation('עמדה ב');
+    const kpi = () => a.q.getByText('התראות LPR').closest('button')!;
+    // The big number on the card (exact match: the card's other lines contain digits too)
+    const count = () => within(kpi()).queryByText(/^\d+$/)?.textContent;
+    expect(count()).toBe('3');
+
+    await a.user.click(kpi());
+    const dialog = within(a.q.getByRole('dialog'));
+    await a.user.click(dialog.getByRole('button', { name: /הוספת התראת LPR/ }));
+    await a.user.type(dialog.getByLabelText('מספר רישוי *'), '55-666-77');
+    await a.user.type(dialog.getByLabelText('סיבה *'), 'רכב גנוב{Enter}');
+
+    await waitFor(() => expect(count()).toBe('4'));
+    expect(await b.q.findByText('עמדה א: התראת LPR: 55-666-77 - רכב גנוב')).toBeInTheDocument();
+
+    const row = (await dialog.findByText('55-666-77')).closest('[title="לחיצה כפולה לעריכה"]') as HTMLElement;
+    await a.user.click(within(row).getByRole('button', { name: /טופל/ }));
+    await waitFor(() => expect(count()).toBe('3'));
+  });
+
+  it('drill scenarios can be added and triggered', async () => {
+    const { user, q } = await openStation();
+    await user.click(q.getByRole('button', { name: /הפעלת תרגיל קיצון/ }));
+    const dialog = within(q.getByRole('dialog'));
+    await user.click(dialog.getByRole('button', { name: /הוספת תרחיש/ }));
+    await user.type(dialog.getByLabelText('שם תרחיש *'), 'שריפה במחסן');
+    await user.click(dialog.getByRole('button', { name: 'שמירה' }));
+    await user.click(await dialog.findByText('שריפה במחסן'));
+    await user.click(dialog.getByRole('button', { name: /הפעל תרגיל/ }));
+    await waitFor(() => expect(server.core.getState().incidents.some((i) => i.title === 'תרגיל קיצון: שריפה במחסן')).toBe(true));
+  });
+
+  it('the HQ name can be renamed and every station sees it', async () => {
+    const a = await openStation('עמדה א');
+    const b = await openStation('עמדה ב');
+    await a.user.dblClick(a.q.getByTitle('לחיצה כפולה לשינוי שם'));
+    const input = a.q.getByLabelText('שם החפ"ק');
+    await a.user.clear(input);
+    await a.user.type(input, 'חפ"ק מרחב בנימין{Enter}');
+    await waitFor(() => expect(b.q.getByTitle('לחיצה כפולה לשינוי שם')).toHaveTextContent('חפ"ק מרחב בנימין'));
   });
 });

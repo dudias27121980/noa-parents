@@ -49,7 +49,10 @@ export function IncidentsScreen({
   const [editingId, setEditingId] = useState<string | null>(null);
 
   // Keep the row being edited visible even if its status changes filter membership mid-edit
-  const visible = incidents.filter((i) => filter === 'all' || i.status !== 'resolved' || i.id === editingId);
+  const visible = incidents
+    .filter((i) => filter === 'all' || i.status !== 'resolved' || i.id === editingId)
+    // Newest first, whatever order the server's list is in
+    .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
 
   return (
     <Panel

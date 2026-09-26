@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { AlertLevel, Agency, MilestoneStatus, TacticalIncident, ViewScreen } from './types/tactical';
+import { AlertLevel, Agency, KpiCard, MilestoneStatus, TacticalIncident, ViewScreen } from './types/tactical';
 import { INITIAL_KPIS } from './data/tacticalData';
 import { HeaderNav } from './components/HeaderNav';
 import { HudCenter } from './components/HudCenter';
@@ -18,7 +18,20 @@ import { SCREENS } from './components/screens';
 import { playCompleteChime, playEmergencyAlarm, playRadioChirp } from './utils/audio';
 import { phaseCountdowns } from './utils/schedule';
 import { isBoolean, oneOf, usePersistentState } from './utils/persist';
-import { Action, AgencyPatch, IncidentPatch, MilestoneFields, MilestonePatch, SharedState, Shift, UnitPatch } from './shared/protocol';
+import {
+  Action,
+  AgencyFields,
+  AgencyPatch,
+  IncidentPatch,
+  MilestoneFields,
+  MilestonePatch,
+  SharedState,
+  Shift,
+  TaskPatch,
+  UnitFields,
+  UnitPatch,
+} from './shared/protocol';
+import { ROUTE_STATUS_LABEL } from './shared/labels';
 import { SharedStore, StoreView } from './sync/store';
 import { Radio, WifiOff } from 'lucide-react';
 
@@ -53,7 +66,8 @@ function Dashboard({
   state,
   onLogout,
 }: Props & { view: StoreView; state: SharedState }) {
-  const { milestones, incidents, units, agencies, logs, alertLevel, mainFrequency, shift } = state;
+  const { milestones, incidents, units, agencies, lprHits, routes, scenarios, logs, alertLevel, mainFrequency, shift, hqName } =
+    state;
   const online = view.status === 'online';
 
   // Radio Transmission Live Toast — one timer, so a new message never gets cut short by an older one
@@ -114,27 +128,52 @@ function Dashboard({
     op.catch((err) => console.warn('Fullscreen error:', err));
   };
 
-  // KPIs that can be derived from live state are, so they never disagree with the screens
+  // Every KPI is computed from the live shared data, so the cards never disagree with the screens
   const kpis = useMemo(() => {
     const onAir = units.filter((u) => u.status !== 'offline');
     const personnel = onAir.reduce((sum, u) => sum + u.personnel, 0);
+    const deployed = units.filter((u) => u.status === 'deployed').length;
     const connected = agencies.filter((a) => a.status === 'connected').length;
-    return INITIAL_KPIS.map((k) => {
-      if (k.action === 'forces') {
-        return { ...k, value: String(personnel), subLabel: `${onAir.length} צוותים בקשר` };
+    const openHits = lprHits
+      .filter((h) => h.status === 'open')
+      .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`));
+    const openRoutes = routes.filter((r) => r.status === 'open').length;
+    const blockedRoute = routes.find((r) => r.status === 'closed') ?? routes.find((r) => r.status === 'partial');
+    const closedRoutes = routes.filter((r) => r.status === 'closed').length;
+    const problemAgency = agencies.find((a) => a.status === 'disconnected') ?? agencies.find((a) => a.status === 'degraded');
+
+    return INITIAL_KPIS.map((k): KpiCard => {
+      switch (k.action) {
+        case 'lpr':
+          return {
+            ...k,
+            value: String(openHits.length),
+            tone: openHits.length ? 'critical' : 'nominal',
+            subLabel: openHits[0] ? `${openHits[0].plate} - ${openHits[0].camera || openHits[0].reason}` : 'אין התראות פתוחות',
+            trend: openHits[0] ? `אחרונה ${openHits[0].time}` : `${lprHits.length} טופלו`,
+          };
+        case 'forces':
+          return { ...k, value: String(personnel), subLabel: `${onAir.length} צוותים בקשר`, trend: `${deployed} פרוסים` };
+        case 'routes':
+          return {
+            ...k,
+            value: `${openRoutes}/${routes.length}`,
+            tone: closedRoutes ? 'critical' : blockedRoute ? 'warning' : 'nominal',
+            subLabel: blockedRoute ? `${blockedRoute.name} ${ROUTE_STATUS_LABEL[blockedRoute.status]}` : 'כל הצירים פתוחים',
+            trend: closedRoutes ? `${closedRoutes} סגורים` : blockedRoute?.note || '',
+          };
+        case 'agencies':
+          return {
+            ...k,
+            value: `${connected}/${agencies.length}`,
+            subLabel: problemAgency
+              ? `${problemAgency.name} ${problemAgency.status === 'disconnected' ? 'מנותק' : 'בתקשורת לקויה'}`
+              : 'כל הגורמים מחוברים',
+            trend: '',
+          };
       }
-      if (k.action === 'agencies') {
-        // Name the worst-off agency, so the card never contradicts the agencies screen
-        const problem =
-          agencies.find((a) => a.status === 'disconnected') ?? agencies.find((a) => a.status === 'degraded');
-        const subLabel = problem
-          ? `${problem.name} ${problem.status === 'disconnected' ? 'מנותק' : 'בתקשורת לקויה'}`
-          : 'כל הגורמים מחוברים';
-        return { ...k, value: `${connected}/${agencies.length}`, subLabel };
-      }
-      return k;
     });
-  }, [units, agencies]);
+  }, [units, agencies, lprHits, routes]);
 
   const unresolvedIncidentsCount = incidents.filter((i) => i.status !== 'resolved').length;
 
@@ -187,7 +226,17 @@ function Dashboard({
   const handleResolveIncident = (id: string) => void send({ type: 'incident.resolve', id });
   const handleEditIncident = (id: string, patch: IncidentPatch) => void send({ type: 'incident.update', id, patch });
   const handleEditUnit = (id: string, patch: UnitPatch) => void send({ type: 'unit.update', id, patch });
+  const handleAddUnit = (fields: UnitFields) => void send({ type: 'unit.add', fields });
+  const handleDeleteUnit = (id: string) => void send({ type: 'unit.delete', id });
+  const handleMoveUnit = (id: string, x: number, y: number) => void send({ type: 'unit.update', id, patch: { x, y } });
   const handleEditAgency = (id: string, patch: AgencyPatch) => void send({ type: 'agency.update', id, patch });
+  const handleAddAgency = (fields: AgencyFields) => void send({ type: 'agency.add', fields });
+  const handleDeleteAgency = (id: string) => void send({ type: 'agency.delete', id });
+  const handleAddTask = (milestoneId: string, text: string) => void send({ type: 'task.add', milestoneId, text });
+  const handleUpdateTask = (milestoneId: string, taskId: string, patch: TaskPatch) =>
+    void send({ type: 'task.update', milestoneId, taskId, patch });
+  const handleDeleteTask = (milestoneId: string, taskId: string) => void send({ type: 'task.delete', milestoneId, taskId });
+  const handleHqNameChange = (name: string) => void send({ type: 'hqName.set', name });
   const handleFrequencyChange = (frequency: string) => void send({ type: 'frequency.set', frequency });
   const handleShiftChange = (next: Shift) => void send({ type: 'shift.set', shift: next });
   const handleAlertLevelChange = (level: AlertLevel) => void send({ type: 'alertLevel.set', level });
@@ -231,7 +280,16 @@ function Dashboard({
         );
       case 'map':
         return (
-          <TacticalMapScreen units={units} onSelectUnit={(u) => handlePingUnit(u.callSign)} audioEnabled={audioEnabled} />
+          <TacticalMapScreen
+            units={units}
+            routes={routes}
+            onSelectUnit={(u) => handlePingUnit(u.callSign)}
+            onMoveUnit={handleMoveUnit}
+            onAddRoute={(fields) => void send({ type: 'route.add', fields })}
+            onUpdateRoute={(id, patch) => void send({ type: 'route.update', id, patch })}
+            onDeleteRoute={(id) => void send({ type: 'route.delete', id })}
+            audioEnabled={audioEnabled}
+          />
         );
       case 'incidents':
       case 'log':
@@ -250,7 +308,14 @@ function Dashboard({
         );
       case 'forces':
         return (
-          <ForcesScreen units={units} onPingUnit={handlePingUnit} onUpdateUnit={handleEditUnit} audioEnabled={audioEnabled} />
+          <ForcesScreen
+            units={units}
+            onPingUnit={handlePingUnit}
+            onUpdateUnit={handleEditUnit}
+            onAddUnit={handleAddUnit}
+            onDeleteUnit={handleDeleteUnit}
+            audioEnabled={audioEnabled}
+          />
         );
       case 'agencies':
         return (
@@ -258,6 +323,8 @@ function Dashboard({
             agencies={agencies}
             onUpdateAgency={handleEditAgency}
             onContactAgency={handleContactAgency}
+            onAddAgency={handleAddAgency}
+            onDeleteAgency={handleDeleteAgency}
             audioEnabled={audioEnabled}
           />
         );
@@ -279,6 +346,8 @@ function Dashboard({
         commanderName={shift.commanderName}
         shiftName={shift.shiftName}
         onShiftChange={handleShiftChange}
+        hqName={hqName}
+        onHqNameChange={handleHqNameChange}
         unresolvedIncidentsCount={unresolvedIncidentsCount}
         station={view.you ?? ''}
         stations={view.stations}
@@ -352,14 +421,29 @@ function Dashboard({
           milestone={selectedMilestone}
           onClose={() => setSelectedMilestoneId(null)}
           onUpdateStatus={handleUpdateMilestoneStatus}
+          onAddTask={handleAddTask}
+          onUpdateTask={handleUpdateTask}
+          onDeleteTask={handleDeleteTask}
           audioEnabled={audioEnabled}
         />
       )}
 
-      {isLprModalOpen && <LprModal onClose={() => setIsLprModalOpen(false)} />}
+      {isLprModalOpen && (
+        <LprModal
+          hits={lprHits}
+          onAdd={(fields) => void send({ type: 'lpr.add', fields })}
+          onUpdate={(id, patch) => void send({ type: 'lpr.update', id, patch })}
+          onDelete={(id) => void send({ type: 'lpr.delete', id })}
+          onClose={() => setIsLprModalOpen(false)}
+        />
+      )}
 
       {isSimModalOpen && (
         <SimModal
+          scenarios={scenarios}
+          onAddScenario={(fields) => void send({ type: 'scenario.add', fields })}
+          onUpdateScenario={(id, patch) => void send({ type: 'scenario.update', id, patch })}
+          onDeleteScenario={(id) => void send({ type: 'scenario.delete', id })}
           onClose={() => setIsSimModalOpen(false)}
           onTriggerScenario={(name, description) => void handleTriggerSimScenario(name, description)}
           audioEnabled={audioEnabled}

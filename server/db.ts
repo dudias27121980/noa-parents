@@ -2,7 +2,7 @@
 // bundle, which refuses static imports of Node built-ins
 const { DatabaseSync } = process.getBuiltinModule('node:sqlite') as typeof import('node:sqlite');
 import { LogEntry } from '../src/types/tactical';
-import { CollectionName, LOG_WINDOW, SharedState, SingletonName } from '../src/shared/protocol';
+import { COLLECTIONS, CollectionName, LOG_WINDOW, SharedState, SingletonName } from '../src/shared/protocol';
 
 /**
  * SQLite persistence (Node's built-in node:sqlite — no native build step).
@@ -10,14 +10,17 @@ import { CollectionName, LOG_WINDOW, SharedState, SingletonName } from '../src/s
  * - singletons: alert level, main frequency, shift, server secret
  * - logs:       append-only operations log; the full history is kept (stations see the newest LOG_WINDOW)
  */
+/** Server-internal keys live next to the shared singletons */
+type SingletonKey = SingletonName | 'secret' | 'schemaVersion';
+
 export interface Db {
   isEmpty(): boolean;
   load(): SharedState | null;
   upsert(collection: CollectionName, rows: { id: string }[]): void;
   remove(collection: CollectionName, ids: string[]): void;
   replaceCollection(collection: CollectionName, rows: { id: string }[]): void;
-  setSingleton(key: SingletonName | 'secret', value: unknown): void;
-  getSingleton<T>(key: SingletonName | 'secret'): T | undefined;
+  setSingleton(key: SingletonKey, value: unknown): void;
+  getSingleton<T>(key: SingletonKey): T | undefined;
   appendLogs(entries: LogEntry[]): void;
   clearLogs(): void;
   /** Every log id ever written — used to continue numbering after the visible window */
@@ -82,7 +85,7 @@ export function openDb(path: string): Db {
         data: string;
       }[];
       if (rows.length === 0) return null;
-      const state = { milestones: [], incidents: [], units: [], agencies: [] } as unknown as SharedState;
+      const state = Object.fromEntries(COLLECTIONS.map((c) => [c, []])) as unknown as SharedState;
       for (const row of rows) (state[row.collection] as unknown[]).push(JSON.parse(row.data));
       state.logs = (
         db.prepare('SELECT data FROM logs ORDER BY seq DESC LIMIT ?').all(LOG_WINDOW) as { data: string }[]
@@ -90,6 +93,8 @@ export function openDb(path: string): Db {
       state.alertLevel = getSingleton('alertLevel')!;
       state.mainFrequency = getSingleton('mainFrequency')!;
       state.shift = getSingleton('shift')!;
+      // Added in schema 2; the core fills it in for older databases
+      state.hqName = getSingleton('hqName')!;
       return state;
     },
 

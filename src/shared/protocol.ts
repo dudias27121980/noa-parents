@@ -2,9 +2,13 @@ import {
   Agency,
   AlertLevel,
   LogEntry,
+  LprHit,
   Milestone,
   MilestoneStatus,
+  MilestoneTask,
+  SimScenario,
   TacticalIncident,
+  TacticalRoute,
   TacticalUnit,
 } from '../types/tactical';
 
@@ -24,17 +28,22 @@ export interface SharedState {
   incidents: TacticalIncident[];
   units: TacticalUnit[];
   agencies: Agency[];
+  lprHits: LprHit[];
+  routes: TacticalRoute[];
+  scenarios: SimScenario[];
   /** Newest first; stations receive at most LOG_WINDOW entries, the server keeps all of them */
   logs: LogEntry[];
   alertLevel: AlertLevel;
   mainFrequency: string;
   shift: Shift;
+  hqName: string;
 }
 
 export const LOG_WINDOW = 500;
 
-export type CollectionName = 'milestones' | 'incidents' | 'units' | 'agencies';
-export type SingletonName = 'alertLevel' | 'mainFrequency' | 'shift';
+export const COLLECTIONS = ['milestones', 'incidents', 'units', 'agencies', 'lprHits', 'routes', 'scenarios'] as const;
+export type CollectionName = (typeof COLLECTIONS)[number];
+export type SingletonName = 'alertLevel' | 'mainFrequency' | 'shift' | 'hqName';
 
 /* ---------- Edits: only the fields a station actually changed are sent ---------- */
 
@@ -46,8 +55,18 @@ export type MilestonePatch = Partial<MilestoneFields>;
 export type IncidentPatch = Partial<
   Pick<TacticalIncident, 'title' | 'location' | 'details' | 'tier' | 'tierLabel' | 'status' | 'assignedUnits'>
 >;
-export type UnitPatch = Partial<Pick<TacticalUnit, 'callSign' | 'type' | 'status' | 'commander' | 'personnel' | 'sector'>>;
-export type AgencyPatch = Partial<Pick<Agency, 'name' | 'role' | 'liaison' | 'frequency' | 'phone' | 'status'>>;
+export type UnitFields = Pick<TacticalUnit, 'callSign' | 'type' | 'status' | 'commander' | 'personnel' | 'sector'>;
+/** x/y: map position in percent (dragging a unit on the map) */
+export type UnitPatch = Partial<UnitFields & Pick<TacticalUnit, 'x' | 'y'>>;
+export type AgencyFields = Pick<Agency, 'name' | 'role' | 'liaison' | 'frequency' | 'phone' | 'status'>;
+export type AgencyPatch = Partial<AgencyFields>;
+export type TaskPatch = Partial<Pick<MilestoneTask, 'text' | 'done'>>;
+export type LprFields = Pick<LprHit, 'plate' | 'vehicle' | 'camera' | 'reason'>;
+export type LprPatch = Partial<LprFields & Pick<LprHit, 'status'>>;
+export type RouteFields = Pick<TacticalRoute, 'name' | 'status' | 'note'>;
+export type RoutePatch = Partial<RouteFields>;
+export type ScenarioFields = Pick<SimScenario, 'name' | 'description'>;
+export type ScenarioPatch = Partial<ScenarioFields>;
 export type NewIncident = Partial<Pick<TacticalIncident, 'title' | 'location' | 'details' | 'tier' | 'tierLabel' | 'assignedUnits'>>;
 
 export type Action =
@@ -55,11 +74,28 @@ export type Action =
   | { type: 'milestone.update'; id: string; patch: MilestonePatch }
   | { type: 'milestone.add'; fields: MilestoneFields }
   | { type: 'milestone.delete'; id: string }
+  | { type: 'task.add'; milestoneId: string; text: string }
+  | { type: 'task.update'; milestoneId: string; taskId: string; patch: TaskPatch }
+  | { type: 'task.delete'; milestoneId: string; taskId: string }
   | { type: 'incident.add'; incident: NewIncident }
   | { type: 'incident.resolve'; id: string }
   | { type: 'incident.update'; id: string; patch: IncidentPatch }
+  | { type: 'unit.add'; fields: UnitFields }
   | { type: 'unit.update'; id: string; patch: UnitPatch }
+  | { type: 'unit.delete'; id: string }
+  | { type: 'agency.add'; fields: AgencyFields }
   | { type: 'agency.update'; id: string; patch: AgencyPatch }
+  | { type: 'agency.delete'; id: string }
+  | { type: 'lpr.add'; fields: LprFields }
+  | { type: 'lpr.update'; id: string; patch: LprPatch }
+  | { type: 'lpr.delete'; id: string }
+  | { type: 'route.add'; fields: RouteFields }
+  | { type: 'route.update'; id: string; patch: RoutePatch }
+  | { type: 'route.delete'; id: string }
+  | { type: 'scenario.add'; fields: ScenarioFields }
+  | { type: 'scenario.update'; id: string; patch: ScenarioPatch }
+  | { type: 'scenario.delete'; id: string }
+  | { type: 'hqName.set'; name: string }
   | { type: 'alertLevel.set'; level: AlertLevel }
   | { type: 'frequency.set'; frequency: string }
   | { type: 'shift.set'; shift: Shift }
@@ -104,7 +140,7 @@ export const CLOSE_UNAUTHORIZED = 4001;
 
 export const applyPatch = (state: SharedState, patch: StatePatch): SharedState => {
   const next: SharedState = { ...state, ...patch.set };
-  (['milestones', 'incidents', 'units', 'agencies'] as const).forEach((name) => {
+  COLLECTIONS.forEach((name) => {
     const up = patch.upsert?.[name];
     const rm = patch.remove?.[name];
     if (!up && !rm) return;

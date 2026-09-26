@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Building2, Phone, Radio } from 'lucide-react';
 import { Agency, AgencyStatus } from '../types/tactical';
-import { Field, InlineEditor, Panel, StatusDot, fieldClass } from './ui';
+import { AddTile, DeleteButton, Field, InlineEditor, Panel, StatusDot, fieldClass } from './ui';
 import { playClick, playRadioChirp } from '../utils/audio';
-import { AgencyPatch } from '../shared/protocol';
+import { AgencyFields, AgencyPatch } from '../shared/protocol';
 import { AGENCY_STATUS_LABEL } from '../shared/labels';
 import { changedFields } from '../shared/diff';
 
@@ -13,8 +13,21 @@ interface Props {
   agencies: Agency[];
   onUpdateAgency: (id: string, patch: AgencyPatch) => void;
   onContactAgency: (agency: Agency) => void;
+  onAddAgency: (fields: AgencyFields) => void;
+  onDeleteAgency: (id: string) => void;
   audioEnabled: boolean;
 }
+
+const NEW_AGENCY: Agency = {
+  id: 'draft',
+  name: '',
+  role: '',
+  liaison: '',
+  frequency: null,
+  phone: '',
+  status: 'connected',
+  lastSync: '',
+};
 
 export const AGENCY_STATUS: Record<AgencyStatus, { label: string; color: string; text: string }> = {
   connected: { label: AGENCY_STATUS_LABEL.connected, color: 'bg-emerald-400', text: 'text-emerald-300' },
@@ -22,8 +35,17 @@ export const AGENCY_STATUS: Record<AgencyStatus, { label: string; color: string;
   disconnected: { label: AGENCY_STATUS_LABEL.disconnected, color: 'bg-red-500', text: 'text-red-300' },
 };
 
-export function AgenciesScreen({ agencies, onUpdateAgency, onContactAgency, audioEnabled }: Props) {
+export function AgenciesScreen({
+  agencies,
+  onUpdateAgency,
+  onContactAgency,
+  onAddAgency,
+  onDeleteAgency,
+  audioEnabled,
+}: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const busy = editingId !== null || adding;
   const connected = agencies.filter((a) => a.status === 'connected').length;
 
   return (
@@ -44,12 +66,17 @@ export function AgenciesScreen({ agencies, onUpdateAgency, onContactAgency, audi
               <AgencyEditor
                 key={a.id}
                 agency={a}
-                onSave={(patch) => {
+                onSave={(fields, base) => {
                   if (audioEnabled) playClick();
+                  const patch = changedFields(base, fields);
                   if (Object.keys(patch).length) onUpdateAgency(a.id, patch);
                   setEditingId(null);
                 }}
                 onCancel={() => setEditingId(null)}
+                onDelete={() => {
+                  onDeleteAgency(a.id);
+                  setEditingId(null);
+                }}
               />
             );
           }
@@ -58,7 +85,7 @@ export function AgenciesScreen({ agencies, onUpdateAgency, onContactAgency, audi
             <div
               key={a.id}
               onDoubleClick={() => {
-                if (editingId) return; // one editor at a time
+                if (busy) return; // one editor at a time
                 if (audioEnabled) playClick();
                 setEditingId(a.id);
               }}
@@ -105,6 +132,20 @@ export function AgenciesScreen({ agencies, onUpdateAgency, onContactAgency, audi
             </div>
           );
         })}
+        {adding ? (
+          <AgencyEditor
+            agency={NEW_AGENCY}
+            isNew
+            onSave={(fields) => {
+              if (audioEnabled) playClick();
+              onAddAgency(fields);
+              setAdding(false);
+            }}
+            onCancel={() => setAdding(false)}
+          />
+        ) : (
+          <AddTile label="הוספת גורם חוץ" disabled={busy} onClick={() => setAdding(true)} />
+        )}
       </div>
     </Panel>
   );
@@ -114,13 +155,17 @@ type ContactMethod = 'radio' | 'phone';
 
 function AgencyEditor({
   agency,
+  isNew = false,
   onSave,
   onCancel,
+  onDelete,
 }: {
   agency: Agency;
-  /** Only the fields changed since the editor opened */
-  onSave: (patch: AgencyPatch) => void;
+  isNew?: boolean;
+  /** All editable fields, plus the agency as it was when editing began (to work out what changed) */
+  onSave: (fields: AgencyFields, base: Agency) => void;
   onCancel: () => void;
+  onDelete?: () => void;
 }) {
   // Snapshot at open: another station may change the agency meanwhile, and only our own edits are sent
   const [base] = useState(agency);
@@ -144,7 +189,7 @@ function AgencyEditor({
     <InlineEditor
       onSubmit={() =>
         onSave(
-          changedFields(base, {
+          {
             name: name.trim(),
             role: role.trim(),
             liaison: liaison.trim(),
@@ -152,12 +197,14 @@ function AgencyEditor({
             // Only the chosen contact method is kept, so the card never shows a stale one
             frequency: method === 'radio' ? frequency : null,
             phone: method === 'phone' ? phone.trim() : null,
-          })
+          },
+          base
         )
       }
       onCancel={onCancel}
       invalid={invalid}
       className="grid-cols-2"
+      extraActions={onDelete && !isNew ? <DeleteButton onConfirm={onDelete} question={`להסיר את ${agency.name}?`} /> : undefined}
     >
       <Field label="שם *">
         <input className={fieldClass(errors.name)} value={name} onChange={(e) => setName(e.target.value)} autoFocus />
