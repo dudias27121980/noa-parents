@@ -20,11 +20,12 @@ export interface ServerOptions {
   heartbeatMs?: number;
   sessionSecret?: string;
   /**
-   * Behind a reverse proxy (HTTPS termination) every request comes from the proxy's address, so the
-   * login lockout would lock out all stations at once. When set, the client address is taken from
-   * X-Forwarded-For — only enable it when a proxy you control sets that header.
+   * Number of reverse proxies in front of the server (0 = none). Behind a proxy every request comes
+   * from the proxy's address, so the login lockout would lock out all stations at once; instead the
+   * client address is read from X-Forwarded-For. Only the entries appended by our own proxies are
+   * trusted — counted from the END: everything before them is whatever the client chose to send.
    */
-  trustProxy?: boolean;
+  trustProxy?: number;
   now?: () => Date;
 }
 
@@ -66,6 +67,18 @@ const readBody = (req: IncomingMessage, limit = 4096) =>
     req.on('end', () => ok(Buffer.concat(chunks).toString('utf8')));
     req.on('error', bad);
   });
+
+/** The address the lockout counts against; see ServerOptions.trustProxy */
+export const clientAddress = (req: IncomingMessage, trustedHops: number): string => {
+  const socket = req.socket.remoteAddress || 'unknown';
+  if (trustedHops <= 0) return socket;
+  const chain = String(req.headers['x-forwarded-for'] ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  // The last `trustedHops` entries were written by our proxies; the nearest of them names the client
+  return chain[chain.length - trustedHops] ?? socket;
+};
 
 export function createServer(opts: ServerOptions) {
   const db = openDb(opts.dbPath);
@@ -117,8 +130,7 @@ export function createServer(opts: ServerOptions) {
         } catch {
           return json(res, 400, { error: 'בקשה לא תקינה' });
         }
-        const forwarded = opts.trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() : '';
-        const result = auth.login(body.station, body.code, forwarded || req.socket.remoteAddress || 'unknown');
+        const result = auth.login(body.station, body.code, clientAddress(req, opts.trustProxy ?? 0));
         if (result.ok) return json(res, 200, { token: result.token, station: result.station });
         if (result.retryAfterSec) return json(res, 429, { error: result.error }, { 'Retry-After': String(result.retryAfterSec) });
         return json(res, 401, { error: result.error });

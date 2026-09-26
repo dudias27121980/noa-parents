@@ -14,7 +14,7 @@ afterEach(async () => {
   for (const c of cleanups.splice(0).reverse()) await c();
 });
 
-async function start(dbPath?: string, trustProxy = false): Promise<Running & { dir: string }> {
+async function start(dbPath?: string, trustProxy = 0): Promise<Running & { dir: string }> {
   const dir = mkdtempSync(join(tmpdir(), 'tactical-app-'));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   mkdirSync(join(dir, 'dist', 'assets'), { recursive: true });
@@ -106,12 +106,25 @@ describe('login', () => {
   });
 
   it('behind a trusted proxy, one station’s wrong codes do not lock out the others', async () => {
-    const { url } = await start(undefined, true);
+    const { url } = await start(undefined, 1);
     const from = (ip: string, code: string) =>
       fetch(`${url}/api/login`, { method: 'POST', body: JSON.stringify({ station: 'x', code }), headers: { 'X-Forwarded-For': ip } });
     for (let i = 0; i < 5; i++) await from('10.0.0.1', 'wrong');
     expect((await from('10.0.0.1', 'code-4321')).status).toBe(429);
     expect((await from('10.0.0.2', 'code-4321')).status).toBe(200);
+  });
+
+  it('behind a trusted proxy, a forged address at the start of X-Forwarded-For does not dodge the lockout', async () => {
+    const { url } = await start(undefined, 1);
+    // The client controls everything before the entry the proxy appends (the real address, last)
+    const attempt = (forged: string, code: string) =>
+      fetch(`${url}/api/login`, {
+        method: 'POST',
+        body: JSON.stringify({ station: 'x', code }),
+        headers: { 'X-Forwarded-For': `${forged}, 10.0.0.1` },
+      });
+    for (let i = 0; i < 5; i++) await attempt(`6.6.6.${i}`, 'wrong');
+    expect((await attempt('6.6.6.99', 'code-4321')).status).toBe(429);
   });
 
   it('ignores X-Forwarded-For unless the proxy is trusted (it could be forged)', async () => {

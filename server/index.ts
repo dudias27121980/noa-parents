@@ -25,7 +25,8 @@ const server = createServer({
   accessCode,
   staticDir: production ? 'dist' : undefined,
   sessionSecret: process.env.SESSION_SECRET,
-  trustProxy: process.env.TRUST_PROXY === '1',
+  // Number of proxies in front of the server (Render: 1); unset/0 = none
+  trustProxy: Math.max(0, Number.parseInt(process.env.TRUST_PROXY ?? '0', 10) || 0),
 });
 
 const actualPort = await server.listen(port, host);
