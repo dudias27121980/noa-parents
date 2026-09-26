@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Maximize2, Minimize2, Shield, Volume2, VolumeX } from 'lucide-react';
+import { Check, Maximize2, Minimize2, Shield, Volume2, VolumeX, X } from 'lucide-react';
 import { ALERT_LEVELS, AlertLevel, ViewScreen } from '../types/tactical';
 import { playClick } from '../utils/audio';
 import { clockTime } from '../utils/time';
@@ -16,6 +16,7 @@ interface Props {
   isFullscreen: boolean;
   commanderName: string;
   shiftName: string;
+  onShiftChange: (shift: { commanderName: string; shiftName: string }) => void;
   unresolvedIncidentsCount?: number;
 }
 
@@ -43,6 +44,7 @@ export function HeaderNav({
   isFullscreen,
   commanderName,
   shiftName,
+  onShiftChange,
   unresolvedIncidentsCount = 0,
 }: Props) {
   const [now, setNow] = useState(() => new Date());
@@ -62,9 +64,7 @@ export function HeaderNav({
           </div>
           <div className="leading-tight">
             <div className="text-sm font-extrabold tracking-wide text-slate-100">חפ"ק מרחב יהודה</div>
-            <div className="text-[11px] text-slate-400">
-              משמרת {shiftName} · מפקד: {commanderName}
-            </div>
+            <ShiftLine commanderName={commanderName} shiftName={shiftName} onChange={onShiftChange} />
           </div>
         </div>
 
@@ -133,5 +133,68 @@ export function HeaderNav({
         </div>
       </div>
     </header>
+  );
+}
+
+/** "משמרת ב' · מפקד: ..." — double-click to change the shift and its commander */
+function ShiftLine({
+  commanderName,
+  shiftName,
+  onChange,
+}: {
+  commanderName: string;
+  shiftName: string;
+  onChange: (shift: { commanderName: string; shiftName: string }) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [commander, setCommander] = useState(commanderName);
+  const [shift, setShift] = useState(shiftName);
+  const valid = commander.trim() !== '' && shift.trim() !== '';
+
+  if (!editing) {
+    return (
+      <div
+        onDoubleClick={() => {
+          setCommander(commanderName);
+          setShift(shiftName);
+          setEditing(true);
+        }}
+        title="לחיצה כפולה לשינוי משמרת ומפקד"
+        className="cursor-default select-none text-[11px] text-slate-400 hover:text-slate-200"
+      >
+        משמרת {shiftName} · מפקד: {commanderName}
+      </div>
+    );
+  }
+
+  const input = 'rounded border border-slate-700 bg-black/40 px-1.5 py-0.5 text-[11px] text-slate-100 outline-none focus:border-cyan-400';
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!valid) return;
+        onChange({ commanderName: commander.trim(), shiftName: shift.trim() });
+        setEditing(false);
+      }}
+      onKeyDown={(e) => e.key === 'Escape' && setEditing(false)}
+      className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-400"
+    >
+      משמרת
+      <input className={`${input} w-10`} value={shift} onChange={(e) => setShift(e.target.value)} aria-label="משמרת" />
+      מפקד
+      <input
+        className={`${input} w-28`}
+        value={commander}
+        onChange={(e) => setCommander(e.target.value)}
+        aria-label="מפקד משמרת"
+        autoFocus
+      />
+      <button type="submit" disabled={!valid} className="rounded bg-cyan-600 p-0.5 text-white disabled:opacity-40" aria-label="שמירה">
+        <Check size={12} />
+      </button>
+      <button type="button" onClick={() => setEditing(false)} className="rounded p-0.5 hover:bg-white/10" aria-label="ביטול">
+        <X size={12} />
+      </button>
+    </form>
   );
 }

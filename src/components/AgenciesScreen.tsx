@@ -42,7 +42,15 @@ export function AgenciesScreen({ agencies, audioEnabled }: Props) {
               <div className="mt-1 text-[11px] text-slate-400">{a.role}</div>
               <div className="mt-2 grid grid-cols-2 gap-y-1 text-[11px] text-slate-400">
                 <span>קישור: <span className="text-slate-200">{a.liaison}</span></span>
-                <span>ערוץ: <span className="text-slate-200">{a.channel}</span></span>
+                <span>
+                  {a.frequency ? (
+                    <>
+                      תדר: <span className="font-mono tracking-wider text-slate-200">{a.frequency}</span>
+                    </>
+                  ) : (
+                    <span className="text-slate-200">{a.phone}</span>
+                  )}
+                </span>
                 <span className="col-span-2">סנכרון אחרון: <span className="font-mono text-slate-200">{a.lastSync}</span></span>
               </div>
               <button

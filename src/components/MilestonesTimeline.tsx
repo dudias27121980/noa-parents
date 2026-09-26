@@ -3,11 +3,11 @@ import { CheckCircle2, CircleDot, Clock3, Flag, Info, Plus, Trash2 } from 'lucid
 import { Milestone, MilestoneStatus } from '../types/tactical';
 import { Field, InlineEditor, Panel, fieldClass } from './ui';
 import { playClick } from '../utils/audio';
-import { endTime, milestoneProgress } from '../utils/schedule';
-import { parseHHMM } from '../utils/time';
+import { milestoneProgress, windowLabel } from '../utils/schedule';
+import { isIsoDate, parseHHMM } from '../utils/time';
 
 export type MilestonePatch = Partial<
-  Pick<Milestone, 'code' | 'title' | 'scheduledTime' | 'durationMin' | 'owner' | 'description'>
+  Pick<Milestone, 'code' | 'title' | 'scheduledDate' | 'scheduledTime' | 'durationMin' | 'owner' | 'description'>
 >;
 
 interface Props {
@@ -127,7 +127,7 @@ export function MilestonesTimeline({
                     <span className="flex items-center gap-1">
                       <Clock3 size={12} />
                       <span className="font-mono" dir="ltr">
-                        {m.scheduledTime}–{endTime(m, now)}
+                        {windowLabel(m)}
                       </span>
                       <span>({m.durationMin} דק׳)</span>
                     </span>
@@ -193,6 +193,7 @@ function MilestoneEditor({
 }) {
   const [code, setCode] = useState(milestone.code);
   const [title, setTitle] = useState(milestone.title);
+  const [date, setDate] = useState(milestone.scheduledDate);
   const [time, setTime] = useState(milestone.scheduledTime);
   const [duration, setDuration] = useState(String(milestone.durationMin));
   const [owner, setOwner] = useState(milestone.owner);
@@ -202,15 +203,17 @@ function MilestoneEditor({
   const durationNum = Number(duration);
   const errors = {
     title: !title.trim(),
+    date: !isIsoDate(date),
     time: parseHHMM(time) === null,
     duration: !Number.isInteger(durationNum) || durationNum < 1 || durationNum > 24 * 60,
   };
-  const invalid = errors.title || errors.time || errors.duration;
+  const invalid = errors.title || errors.date || errors.time || errors.duration;
 
   const save = () =>
     onSave({
       code: code.trim() || milestone.code,
       title: title.trim(),
+      scheduledDate: date,
       scheduledTime: time,
       durationMin: durationNum,
       owner: owner.trim(),
@@ -248,8 +251,11 @@ function MilestoneEditor({
       <Field label="קוד" className="sm:col-span-1">
         <input className={fieldClass()} value={code} onChange={(e) => setCode(e.target.value)} dir="ltr" />
       </Field>
-      <Field label="כותרת *" className="sm:col-span-3">
+      <Field label="כותרת *" className="sm:col-span-5">
         <input className={fieldClass(errors.title)} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+      </Field>
+      <Field label="תאריך *" className="sm:col-span-2">
+        <input type="date" className={fieldClass(errors.date)} value={date} onChange={(e) => setDate(e.target.value)} dir="ltr" />
       </Field>
       <Field label="שעת התחלה *" className="sm:col-span-1">
         <input type="time" className={fieldClass(errors.time)} value={time} onChange={(e) => setTime(e.target.value)} dir="ltr" />
@@ -268,7 +274,7 @@ function MilestoneEditor({
       <Field label="אחראי" className="col-span-2 sm:col-span-2">
         <input className={fieldClass()} value={owner} onChange={(e) => setOwner(e.target.value)} />
       </Field>
-      <Field label="תיאור" className="col-span-2 sm:col-span-4">
+      <Field label="תיאור" className="col-span-2 sm:col-span-6">
         <input className={fieldClass()} value={description} onChange={(e) => setDescription(e.target.value)} />
       </Field>
     </InlineEditor>

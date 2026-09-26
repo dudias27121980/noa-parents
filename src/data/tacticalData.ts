@@ -1,16 +1,17 @@
 import { Agency, KpiCard, LogEntry, Milestone, TacticalIncident, TacticalUnit } from '../types/tactical';
 import { normalizeMilestones } from '../utils/schedule';
-import { hhmm } from '../utils/time';
+import { hhmm, isoDate } from '../utils/time';
 
 // All data below is fictional demo data for the dashboard UI.
 
 // Demo schedule is laid out around the moment it is built (first load or data reset), so the target
 // clocks (which run on the browser clock) show a live phase. Edit times in the UI to set real ones.
 export const buildDemoMilestones = (loadTime: Date = new Date()): Milestone[] => {
+  // Start date + time `offsetMin` from load, on a 5-minute grid (crosses midnight correctly)
   const at = (offsetMin: number) => {
     const d = new Date(loadTime);
     d.setMinutes(Math.floor(d.getMinutes() / 5) * 5 + offsetMin, 0, 0);
-    return hhmm(d);
+    return { scheduledDate: isoDate(d), scheduledTime: hhmm(d) };
   };
 
   return normalizeMilestones([
@@ -18,7 +19,7 @@ export const buildDemoMilestones = (loadTime: Date = new Date()): Milestone[] =>
       id: 'MS-01',
       code: 'H-60',
       title: 'כינוס מפקדים ותדריך פתיחה',
-      scheduledTime: at(-90),
+      ...at(-90),
       durationMin: 30,
       owner: 'מפקד המרחב',
       description: 'תדריך פתיחת משמרת, הצגת תמונת מצב מודיעינית וחלוקת גזרות אחריות.',
@@ -30,7 +31,7 @@ export const buildDemoMilestones = (loadTime: Date = new Date()): Milestone[] =>
       id: 'MS-02',
       code: 'H-30',
       title: 'פריסת מחסומים בצירים ראשיים',
-      scheduledTime: at(-60),
+      ...at(-60),
       durationMin: 35,
       owner: 'מפקד פלוגת סיור',
       description: 'הצבת מחסומים ניידים בצומתי מפתח לאורך ציר 60 וציר 35, כולל מצלמות LPR.',
@@ -42,7 +43,7 @@ export const buildDemoMilestones = (loadTime: Date = new Date()): Milestone[] =>
       id: 'MS-03',
       code: 'H-HOUR',
       title: 'סריקה ממוקדת במרחב חברון',
-      scheduledTime: at(-25),
+      ...at(-25),
       durationMin: 45,
       owner: 'מפקד יס"מ',
       description: 'סריקה בגזרה המזרחית בליווי רחפן תרמי. דיווח מצב כל 10 דקות לחפ"ק.',
@@ -54,7 +55,7 @@ export const buildDemoMilestones = (loadTime: Date = new Date()): Milestone[] =>
       id: 'MS-04',
       code: 'H+45',
       title: 'החלפת כוחות וריענון',
-      scheduledTime: at(25),
+      ...at(25),
       durationMin: 40,
       owner: 'קצין אג"מ',
       description: 'החלפת כוחות הסיור במחסומים, תדלוק ורענון ציוד.',
@@ -66,7 +67,7 @@ export const buildDemoMilestones = (loadTime: Date = new Date()): Milestone[] =>
       id: 'MS-05',
       code: 'H+120',
       title: 'סיכום ביניים ותחקיר חם',
-      scheduledTime: at(70),
+      ...at(70),
       durationMin: 30,
       owner: 'מפקד המרחב',
       description: 'סיכום ביניים של הפעילות, הפקת לקחים ראשוניים ועדכון דרג ממונה.',
@@ -117,9 +118,10 @@ export const INITIAL_KPIS: KpiCard[] = [
   },
 ];
 
-export const INITIAL_INCIDENTS: TacticalIncident[] = [
+export const buildDemoIncidents = (date: string = isoDate()): TacticalIncident[] => [
   {
     id: 'INC-7241',
+    date,
     time: '07:02:14',
     tier: 1,
     tierLabel: 'דחוף - סכנת חיים',
@@ -131,6 +133,7 @@ export const INITIAL_INCIDENTS: TacticalIncident[] = [
   },
   {
     id: 'INC-7238',
+    date,
     time: '06:48:51',
     tier: 2,
     tierLabel: 'חריג - בבדיקה',
@@ -142,6 +145,7 @@ export const INITIAL_INCIDENTS: TacticalIncident[] = [
   },
   {
     id: 'INC-7230',
+    date,
     time: '06:21:07',
     tier: 3,
     tierLabel: 'שגרתי',
@@ -253,7 +257,8 @@ export const INITIAL_AGENCIES: Agency[] = [
     name: 'מד"א',
     role: 'רפואה והצלה',
     liaison: 'מוקד מרחבי',
-    channel: 'ערוץ 7',
+    frequency: '2170',
+    phone: null,
     status: 'degraded',
     lastSync: '07:12:40',
   },
@@ -262,7 +267,8 @@ export const INITIAL_AGENCIES: Agency[] = [
     name: 'כבאות והצלה',
     role: 'כיבוי וחילוץ',
     liaison: 'קצין קישור',
-    channel: 'ערוץ 4',
+    frequency: '2140',
+    phone: null,
     status: 'connected',
     lastSync: '07:13:58',
   },
@@ -271,7 +277,8 @@ export const INITIAL_AGENCIES: Agency[] = [
     name: 'פיקוד העורף',
     role: 'התגוננות אזרחית',
     liaison: 'נציג מחוז',
-    channel: 'ערוץ 2',
+    frequency: '2120',
+    phone: null,
     status: 'connected',
     lastSync: '07:13:50',
   },
@@ -280,7 +287,8 @@ export const INITIAL_AGENCIES: Agency[] = [
     name: 'מוקד עירוני',
     role: 'תשתיות ותנועה',
     liaison: 'מנהל משמרת',
-    channel: 'טלפון קווי',
+    frequency: null,
+    phone: 'טלפון קווי',
     status: 'connected',
     lastSync: '07:11:05',
   },
@@ -289,7 +297,8 @@ export const INITIAL_AGENCIES: Agency[] = [
     name: 'חטיבה מרחבית',
     role: 'תיאום צבאי',
     liaison: 'קמ"ן חטיבה',
-    channel: 'ערוץ מוצפן 1',
+    frequency: '1010',
+    phone: null,
     status: 'connected',
     lastSync: '07:14:01',
   },
@@ -298,15 +307,17 @@ export const INITIAL_AGENCIES: Agency[] = [
     name: 'חברת החשמל',
     role: 'תשתיות אנרגיה',
     liaison: 'מוקד תקלות',
-    channel: 'טלפון קווי',
+    frequency: null,
+    phone: 'טלפון קווי',
     status: 'disconnected',
     lastSync: '06:40:22',
   },
 ];
 
-export const INITIAL_LOGS: LogEntry[] = [
+export const buildDemoLogs = (date: string = isoDate()): LogEntry[] => [
   {
     id: 'LOG-0412',
+    date,
     timestamp: '07:02:14',
     severity: 'CRITICAL',
     source: 'מערכת LPR',
@@ -314,6 +325,7 @@ export const INITIAL_LOGS: LogEntry[] = [
   },
   {
     id: 'LOG-0409',
+    date,
     timestamp: '06:48:51',
     severity: 'WARNING',
     source: 'יומן מבצעים',
@@ -321,6 +333,7 @@ export const INITIAL_LOGS: LogEntry[] = [
   },
   {
     id: 'LOG-0402',
+    date,
     timestamp: '06:30:00',
     severity: 'NOMINAL',
     source: 'חפ"ק אג"מ מרחב יהודה',
@@ -328,6 +341,7 @@ export const INITIAL_LOGS: LogEntry[] = [
   },
   {
     id: 'LOG-0398',
+    date,
     timestamp: '06:00:12',
     severity: 'NOMINAL',
     source: 'מערכת',
@@ -352,3 +366,8 @@ export const SIM_SCENARIOS = [
     description: 'התרעה על חדירה בגדר המערכת. הקפצת כיתת כוננות, יס"מ ורחפן תרמי.',
   },
 ] as const;
+
+/** Main command net — 4-digit radio frequency */
+export const DEFAULT_MAIN_FREQUENCY = '1480';
+
+export const DEFAULT_SHIFT = { commanderName: 'נצ"מ כהן', shiftName: "ב'" };

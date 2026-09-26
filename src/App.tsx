@@ -13,10 +13,12 @@ import {
 import {
   buildDemoMilestones,
   INITIAL_KPIS,
-  INITIAL_INCIDENTS,
+  buildDemoIncidents,
   INITIAL_UNITS,
   INITIAL_AGENCIES,
-  INITIAL_LOGS,
+  buildDemoLogs,
+  DEFAULT_MAIN_FREQUENCY,
+  DEFAULT_SHIFT,
 } from './data/tacticalData';
 import { HeaderNav } from './components/HeaderNav';
 import { HudCenter } from './components/HudCenter';
@@ -33,8 +35,8 @@ import { MilestoneModal } from './components/MilestoneModal';
 import { LprModal } from './components/LprModal';
 import { SimModal } from './components/SimModal';
 import { playCompleteChime, playEmergencyAlarm } from './utils/audio';
-import { clockTime, hhmm, todayAt } from './utils/time';
-import { STATUS_BADGE, normalizeMilestones, phaseCountdowns } from './utils/schedule';
+import { clockTime, hhmm, isoDate } from './utils/time';
+import { STATUS_BADGE, milestoneWindow, normalizeMilestones, phaseCountdowns } from './utils/schedule';
 import {
   arrayOf,
   clearStored,
@@ -42,6 +44,7 @@ import {
   nextIdNumber,
   oneOf,
   usePersistentState,
+  withDefault,
 } from './utils/persist';
 import { SCREENS } from './components/screens';
 import { Radio } from 'lucide-react';
@@ -56,19 +59,28 @@ const MAX_LOGS = 500;
 const isScreen = oneOf<ViewScreen>(SCREENS.map((s) => s.id));
 const isAlertLevel = oneOf<AlertLevel>(ALERT_LEVELS);
 const isMilestones = arrayOf<Milestone>({
-  id: 'string', code: 'string', title: 'string', scheduledTime: 'string', durationMin: 'number',
+  id: 'string', code: 'string', title: 'string', scheduledDate: 'string', scheduledTime: 'string', durationMin: 'number',
   owner: 'string', description: 'string', statusType: 'string', statusBadge: 'string', tasks: 'array',
 });
 const isIncidents = arrayOf<TacticalIncident>({
-  id: 'string', time: 'string', tier: 'number', tierLabel: 'string', title: 'string', location: 'string',
+  id: 'string', date: 'string', time: 'string', tier: 'number', tierLabel: 'string', title: 'string', location: 'string',
   details: 'string', status: 'string', assignedUnits: 'array',
 });
 const isUnits = arrayOf<TacticalUnit>({
   id: 'string', callSign: 'string', type: 'string', status: 'string', commander: 'string', personnel: 'number',
   sector: 'string', x: 'number', y: 'number', lastContact: 'string', signalStrength: 'number',
 });
+const isFrequency = (v: unknown): v is string => typeof v === 'string' && /^\d{4}$/.test(v);
+const isShift = (v: unknown): v is typeof DEFAULT_SHIFT =>
+  typeof v === 'object' && v !== null &&
+  typeof (v as Record<string, unknown>).commanderName === 'string' &&
+  typeof (v as Record<string, unknown>).shiftName === 'string';
+
+// Saves from before dates were added get today's date rather than being discarded
+const addToday = (field: string) => withDefault(field, () => isoDate());
+
 const isLogs = arrayOf<LogEntry>({
-  id: 'string', timestamp: 'string', severity: 'string', source: 'string', action: 'string',
+  id: 'string', date: 'string', timestamp: 'string', severity: 'string', source: 'string', action: 'string',
 });
 
 export default function App() {
@@ -95,10 +107,18 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = usePersistentState('screen', () => 'clock' as ViewScreen, isScreen, onSaveError);
   const [alertLevel, setAlertLevel] = usePersistentState('alertLevel', () => DEFAULT_ALERT, isAlertLevel, onSaveError);
   const [audioEnabled, setAudioEnabled] = usePersistentState('audio', () => true, isBoolean, onSaveError);
-  const [milestones, setMilestones] = usePersistentState('milestones', () => buildDemoMilestones(), isMilestones, onSaveError);
-  const [incidents, setIncidents] = usePersistentState('incidents', () => INITIAL_INCIDENTS, isIncidents, onSaveError);
+  const [milestones, setMilestones] = usePersistentState(
+    'milestones', () => buildDemoMilestones(), isMilestones, onSaveError, addToday('scheduledDate')
+  );
+  const [incidents, setIncidents] = usePersistentState(
+    'incidents', () => buildDemoIncidents(), isIncidents, onSaveError, addToday('date')
+  );
   const [units, setUnits] = usePersistentState('units', () => INITIAL_UNITS, isUnits, onSaveError);
-  const [logs, setLogs] = usePersistentState('logs', () => INITIAL_LOGS, isLogs, onSaveError);
+  const [logs, setLogs] = usePersistentState('logs', () => buildDemoLogs(), isLogs, onSaveError, addToday('date'));
+  const [mainFrequency, setMainFrequency] = usePersistentState(
+    'frequency', () => DEFAULT_MAIN_FREQUENCY, isFrequency, onSaveError
+  );
+  const [shift, setShift] = usePersistentState('shift', () => DEFAULT_SHIFT, isShift, onSaveError);
   const [agencies] = useState(INITIAL_AGENCIES);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -180,6 +200,7 @@ export default function App() {
   const appendLog = useCallback((severity: LogSeverity, source: string, action: string) => {
     const entry: LogEntry = {
       id: `LOG-${String(++logSeq.current).padStart(4, '0')}`,
+      date: isoDate(),
       timestamp: clockTime(),
       severity,
       source,
@@ -189,7 +210,7 @@ export default function App() {
   }, [setLogs]);
 
   const handleSimulateTransmission = () => {
-    showToast('קשר "ברק" 148.950MHz: חפ"ק לכלל הכוחות בגזרה - הגבירו עירנות בציר 60');
+    showToast(`קשר "ברק" תדר ${mainFrequency}: חפ"ק לכלל הכוחות בגזרה - הגבירו עירנות בציר 60`);
   };
 
   const handlePingUnit = (callSign: string) => {
@@ -203,10 +224,12 @@ export default function App() {
   const handleResetData = () => {
     clearStored();
     setMilestones(buildDemoMilestones());
-    setIncidents(INITIAL_INCIDENTS);
+    setIncidents(buildDemoIncidents());
     setUnits(INITIAL_UNITS);
-    setLogs(INITIAL_LOGS);
+    setLogs(buildDemoLogs());
     setAlertLevel(DEFAULT_ALERT);
+    setMainFrequency(DEFAULT_MAIN_FREQUENCY);
+    setShift(DEFAULT_SHIFT);
     setSelectedMilestoneId(null);
     showToast('הנתונים אופסו לנתוני ההדגמה', 3000);
   };
@@ -234,13 +257,12 @@ export default function App() {
     const id = `MS-${++msSeq.current}`;
     // New row starts when the last row ends
     const last = milestones[milestones.length - 1];
-    const start = last
-      ? new Date(todayAt(last.scheduledTime, now).getTime() + last.durationMin * 60_000)
-      : new Date(Math.ceil(now.getTime() / (5 * 60_000)) * 5 * 60_000);
+    const start = last ? milestoneWindow(last).end : new Date(Math.ceil(now.getTime() / (5 * 60_000)) * 5 * 60_000);
     const row: Milestone = {
       id,
       code: `M-${milestones.length + 1}`,
       title: 'משימה חדשה',
+      scheduledDate: isoDate(start),
       scheduledTime: hhmm(start),
       durationMin: 30,
       owner: '',
@@ -267,6 +289,7 @@ export default function App() {
   const handleAddIncident = (newInc: Partial<TacticalIncident>) => {
     const fullInc: TacticalIncident = {
       id: `INC-${++incidentSeq.current}`,
+      date: isoDate(),
       time: clockTime(),
       tier: newInc.tier || 2,
       tierLabel: newInc.tierLabel || 'חריג - בבדיקה',
@@ -344,6 +367,9 @@ export default function App() {
 
     const notes: string[] = [];
     if (renamed) notes.push(`אות קריאה: ${target.callSign} ← ${renamed}`);
+    if (patch.commander !== undefined && patch.commander !== target.commander) {
+      notes.push(`מפקד: ${target.commander || '—'} ← ${patch.commander || '—'}`);
+    }
     if (patch.status && patch.status !== target.status) {
       notes.push(`סטטוס: ${UNIT_STATUS[target.status].label} ← ${UNIT_STATUS[patch.status].label}`);
     }
@@ -352,6 +378,18 @@ export default function App() {
       'שליטה בכוחות',
       `עריכת כוח ${renamed ?? target.callSign}${notes.length ? ` (${notes.join(', ')})` : ''}`
     );
+  };
+
+  const handleFrequencyChange = (frequency: string) => {
+    if (frequency === mainFrequency) return;
+    setMainFrequency(frequency);
+    appendLog('WARNING', 'קשר', `החלפת תדר רשת ראשית: ${mainFrequency} ← ${frequency}`);
+  };
+
+  const handleShiftChange = (next: typeof DEFAULT_SHIFT) => {
+    if (next.commanderName === shift.commanderName && next.shiftName === shift.shiftName) return;
+    setShift(next);
+    appendLog('NOMINAL', 'מפקד משמרת', `עדכון משמרת: משמרת ${next.shiftName}, מפקד ${next.commanderName}`);
   };
 
   const handleAlertLevelChange = (level: AlertLevel) => {
@@ -444,14 +482,20 @@ export default function App() {
         onToggleAudio={() => setAudioEnabled((v) => !v)}
         onToggleFullscreen={toggleFullscreen}
         isFullscreen={isFullscreen}
-        commanderName='נצ"מ כהן'
+        commanderName={shift.commanderName}
+        shiftName={shift.shiftName}
+        onShiftChange={handleShiftChange}
         unresolvedIncidentsCount={unresolvedIncidentsCount}
-        shiftName="ב'"
       />
 
       {/* Main Viewport Container */}
       <main className="flex-1 w-full max-w-[1720px] mx-auto p-3 sm:p-4 flex flex-col gap-3">
-        <HudCenter audioEnabled={audioEnabled} onSimulateTransmission={handleSimulateTransmission} />
+        <HudCenter
+          audioEnabled={audioEnabled}
+          onSimulateTransmission={handleSimulateTransmission}
+          mainFrequency={mainFrequency}
+          onFrequencyChange={handleFrequencyChange}
+        />
 
         <KpiRow
           kpis={kpis}

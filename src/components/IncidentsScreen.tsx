@@ -2,6 +2,7 @@ import { FormEvent, ReactNode, useState } from 'react';
 import { CheckCircle2, FileText, MapPin, Plus, Siren, Users } from 'lucide-react';
 import { IncidentStatus, IncidentTier, LogEntry, LogSeverity, TacticalIncident } from '../types/tactical';
 import { Field, InlineEditor, Panel, fieldClass } from './ui';
+import { formatDate } from '../utils/time';
 import { playClick, playCompleteChime, playEmergencyAlarm } from '../utils/audio';
 
 type Tab = 'incidents' | 'log';
@@ -160,7 +161,9 @@ export function IncidentsScreen({
                     </div>
                     <div className="mt-1 text-sm font-bold text-slate-100">{inc.title}</div>
                   </div>
-                  <span className="font-mono text-xs text-slate-400">{inc.time}</span>
+                  <span className="font-mono text-xs text-slate-400" dir="ltr">
+                    {formatDate(inc.date)} {inc.time}
+                  </span>
                 </div>
                 {inc.details && <p className="mt-1 text-xs text-slate-300">{inc.details}</p>}
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
@@ -200,9 +203,10 @@ export function IncidentsScreen({
 function LogTable({ logs }: { logs: LogEntry[] }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[480px] text-xs">
+      <table className="w-full min-w-[540px] text-xs">
         <thead className="text-slate-400">
           <tr className="border-b border-slate-800">
+            <th className="p-2 text-start font-semibold">תאריך</th>
             <th className="p-2 text-start font-semibold">שעה</th>
             <th className="p-2 text-start font-semibold">חומרה</th>
             <th className="p-2 text-start font-semibold">מקור</th>
@@ -212,6 +216,7 @@ function LogTable({ logs }: { logs: LogEntry[] }) {
         <tbody>
           {logs.map((l) => (
             <tr key={l.id} className="border-b border-slate-800/60 hover:bg-white/5">
+              <td className="whitespace-nowrap p-2 font-mono text-slate-400">{formatDate(l.date)}</td>
               <td className="p-2 font-mono text-slate-300">{l.timestamp}</td>
               <td className="p-2">
                 <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${SEVERITY_STYLE[l.severity]}`}>

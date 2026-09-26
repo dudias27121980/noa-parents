@@ -17,18 +17,24 @@ export const STORAGE_KEYS = [
   'incidents',
   'units',
   'logs',
+  'frequency',
+  'shift',
 ] as const;
 export type StorageKey = (typeof STORAGE_KEYS)[number];
 
 const fullKey = (key: StorageKey) => PREFIX + key;
 
-export function loadStored<T>(key: StorageKey, isValid: (v: unknown) => v is T): T | undefined {
+/** Upgrades data saved by an older build (e.g. fills in fields added since) before it is validated */
+export type Migrate = (data: unknown) => unknown;
+
+export function loadStored<T>(key: StorageKey, isValid: (v: unknown) => v is T, migrate?: Migrate): T | undefined {
   try {
     const raw = localStorage.getItem(fullKey(key));
     if (!raw) return undefined;
     const parsed = JSON.parse(raw) as { v?: number; data?: unknown };
-    if (parsed?.v !== SCHEMA_VERSION || !isValid(parsed.data)) return undefined;
-    return parsed.data;
+    if (parsed?.v !== SCHEMA_VERSION) return undefined;
+    const data = migrate ? migrate(parsed.data) : parsed.data;
+    return isValid(data) ? data : undefined;
   } catch {
     return undefined;
   }
@@ -51,9 +57,10 @@ export function usePersistentState<T>(
   key: StorageKey,
   initial: () => T,
   isValid: (v: unknown) => v is T,
-  onSaveError?: () => void
+  onSaveError?: () => void,
+  migrate?: Migrate
 ): [T, Dispatch<SetStateAction<T>>] {
-  const [value, setValue] = useState<T>(() => loadStored(key, isValid) ?? initial());
+  const [value, setValue] = useState<T>(() => loadStored(key, isValid, migrate) ?? initial());
 
   useEffect(() => {
     const serialized = serialize(value);
@@ -71,7 +78,7 @@ export function usePersistentState<T>(
     const onStorage = (e: StorageEvent) => {
       if (e.storageArea !== localStorage) return;
       if (e.key !== null && e.key !== fullKey(key)) return;
-      setValue(loadStored(key, isValid) ?? initial());
+      setValue(loadStored(key, isValid, migrate) ?? initial());
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
@@ -98,6 +105,14 @@ export const oneOf =
   <T extends string>(values: readonly T[]) =>
   (v: unknown): v is T =>
     typeof v === 'string' && (values as readonly string[]).includes(v);
+
+/** Migration helper: give every item in a saved array a default for a field it lacks */
+export const withDefault =
+  (field: string, value: () => unknown): Migrate =>
+  (data) =>
+    Array.isArray(data)
+      ? data.map((item) => (isObj(item) && !(field in item) ? { ...item, [field]: value() } : item))
+      : data;
 
 export const isBoolean = (v: unknown): v is boolean => typeof v === 'boolean';
 

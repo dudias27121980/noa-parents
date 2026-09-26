@@ -22,10 +22,25 @@ export const parseHHMM = (value: string): number | null => {
   return h < 24 && min < 60 ? h * 60 + min : null;
 };
 
-/** Today's Date at "HH:MM" on the browser's local clock */
-export const todayAt = (value: string, now: Date = new Date()) => {
-  const d = new Date(now);
-  const mins = parseHHMM(value) ?? 0;
-  d.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
-  return d;
+/** Local calendar date as "YYYY-MM-DD" (what <input type="date"> uses) */
+export const isoDate = (d: Date = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+export const isIsoDate = (value: string) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return false;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]);
+};
+
+/** "YYYY-MM-DD" -> "DD.MM.YY" (Israeli order) */
+export const formatDate = (value: string) => {
+  const [y, m, d] = value.split('-');
+  return y && m && d ? `${d}.${m}.${y.slice(2)}` : value;
+};
+
+/** Date at "YYYY-MM-DD" + "HH:MM" on the browser's local clock */
+export const dateTimeAt = (date: string, time: string) => {
+  const [y, m, d] = date.split('-').map(Number);
+  const mins = parseHHMM(time) ?? 0;
+  return new Date(y, (m || 1) - 1, d || 1, Math.floor(mins / 60), mins % 60, 0, 0);
 };

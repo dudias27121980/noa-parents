@@ -15,7 +15,8 @@ export interface Milestone {
   id: string;
   code: string;
   title: string;
-  /** Start time, "HH:MM" on the browser's local clock (today) */
+  /** Start date "YYYY-MM-DD" and time "HH:MM" on the browser's local clock */
+  scheduledDate: string;
   scheduledTime: string;
   durationMin: number;
   owner: string;
@@ -62,6 +63,8 @@ export type IncidentStatus = 'active' | 'monitoring' | 'resolved';
 
 export interface TacticalIncident {
   id: string;
+  /** "YYYY-MM-DD" */
+  date: string;
   time: string;
   tier: IncidentTier;
   tierLabel: string;
@@ -79,7 +82,9 @@ export interface Agency {
   name: string;
   role: string;
   liaison: string;
-  channel: string;
+  /** 4-digit radio frequency, or null when reached by phone only */
+  frequency: string | null;
+  phone: string | null;
   status: AgencyStatus;
   lastSync: string;
 }
@@ -88,6 +93,8 @@ export type LogSeverity = 'NOMINAL' | 'WARNING' | 'CRITICAL';
 
 export interface LogEntry {
   id: string;
+  /** "YYYY-MM-DD" */
+  date: string;
   timestamp: string;
   severity: LogSeverity;
   source: string;

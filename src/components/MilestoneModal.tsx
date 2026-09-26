@@ -3,7 +3,7 @@ import { Milestone, MilestoneStatus } from '../types/tactical';
 import { ModalShell } from './ui';
 import { STATUS_STYLE } from './MilestonesTimeline';
 import { playClick, playCompleteChime } from '../utils/audio';
-import { endTime, milestoneProgress } from '../utils/schedule';
+import { milestoneProgress, windowLabel } from '../utils/schedule';
 
 interface Props {
   milestone: Milestone;
@@ -32,7 +32,7 @@ export function MilestoneModal({ milestone, onClose, onUpdateStatus, audioEnable
           <span className="flex items-center gap-1 text-slate-400">
             <Clock3 size={12} />
             <span className="font-mono" dir="ltr">
-              {milestone.scheduledTime}–{endTime(milestone, now)}
+              {windowLabel(milestone)}
             </span>
           </span>
           <span className="text-slate-400">אחראי: {milestone.owner}</span>
