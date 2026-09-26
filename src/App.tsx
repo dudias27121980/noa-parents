@@ -1,97 +1,65 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ALERT_LEVELS,
-  ViewScreen,
-  AlertLevel,
-  Agency,
-  Milestone,
-  MilestoneStatus,
-  TacticalUnit,
-  TacticalIncident,
-  LogEntry,
-  LogSeverity,
-} from './types/tactical';
-import {
-  buildDemoMilestones,
-  INITIAL_KPIS,
-  buildDemoIncidents,
-  INITIAL_UNITS,
-  INITIAL_AGENCIES,
-  buildDemoLogs,
-  DEFAULT_MAIN_FREQUENCY,
-  DEFAULT_SHIFT,
-} from './data/tacticalData';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { AlertLevel, Agency, MilestoneStatus, TacticalIncident, ViewScreen } from './types/tactical';
+import { INITIAL_KPIS } from './data/tacticalData';
 import { HeaderNav } from './components/HeaderNav';
 import { HudCenter } from './components/HudCenter';
 import { KpiRow } from './components/KpiRow';
 import { RadarControls } from './components/RadarControls';
-import { MilestonePatch, MilestonesTimeline } from './components/MilestonesTimeline';
+import { MilestonesTimeline } from './components/MilestonesTimeline';
 import { RightSidebar } from './components/RightSidebar';
 import { TacticalMapScreen } from './components/TacticalMapScreen';
-import { INCIDENT_STATUS_LABEL, IncidentPatch, IncidentsScreen } from './components/IncidentsScreen';
-import { ForcesScreen, UnitPatch } from './components/ForcesScreen';
-import { UNIT_STATUS } from './components/TacticalMapScreen';
-import { AGENCY_STATUS, AgenciesScreen, AgencyPatch } from './components/AgenciesScreen';
+import { IncidentsScreen } from './components/IncidentsScreen';
+import { ForcesScreen } from './components/ForcesScreen';
+import { AgenciesScreen } from './components/AgenciesScreen';
 import { MilestoneModal } from './components/MilestoneModal';
 import { LprModal } from './components/LprModal';
 import { SimModal } from './components/SimModal';
-import { playCompleteChime, playEmergencyAlarm } from './utils/audio';
-import { clockTime, hhmm, isoDate } from './utils/time';
-import { STATUS_BADGE, milestoneWindow, normalizeMilestones, phaseCountdowns } from './utils/schedule';
-import {
-  arrayOf,
-  clearStored,
-  isBoolean,
-  nextIdNumber,
-  oneOf,
-  usePersistentState,
-  withDefault,
-} from './utils/persist';
 import { SCREENS } from './components/screens';
-import { Radio } from 'lucide-react';
+import { playCompleteChime, playEmergencyAlarm, playRadioChirp } from './utils/audio';
+import { phaseCountdowns } from './utils/schedule';
+import { isBoolean, oneOf, usePersistentState } from './utils/persist';
+import { Action, AgencyPatch, IncidentPatch, MilestoneFields, MilestonePatch, SharedState, Shift, UnitPatch } from './shared/protocol';
+import { SharedStore, StoreView } from './sync/store';
+import { Radio, WifiOff } from 'lucide-react';
 
-const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
-
-const DEFAULT_ALERT: AlertLevel = 'כוננות ג׳ - מצב מבצעי מוגבר';
-/** Oldest log entries are dropped past this, so localStorage can't fill up over a long shift */
-const MAX_LOGS = 500;
-
-// Shape checks for data restored from localStorage (anything else falls back to the demo data)
+// Per-station preferences stay in this browser; everything operational lives on the server
 const isScreen = oneOf<ViewScreen>(SCREENS.map((s) => s.id));
-const isAlertLevel = oneOf<AlertLevel>(ALERT_LEVELS);
-const isMilestones = arrayOf<Milestone>({
-  id: 'string', code: 'string', title: 'string', scheduledDate: 'string', scheduledTime: 'string', durationMin: 'number',
-  owner: 'string', description: 'string', statusType: 'string', statusBadge: 'string', tasks: 'array',
-});
-const isIncidents = arrayOf<TacticalIncident>({
-  id: 'string', date: 'string', time: 'string', tier: 'number', tierLabel: 'string', title: 'string', location: 'string',
-  details: 'string', status: 'string', assignedUnits: 'array',
-});
-const isUnits = arrayOf<TacticalUnit>({
-  id: 'string', callSign: 'string', type: 'string', status: 'string', commander: 'string', personnel: 'number',
-  sector: 'string', x: 'number', y: 'number', lastContact: 'string', signalStrength: 'number',
-});
-const isAgencies = arrayOf<Agency>({
-  id: 'string', name: 'string', role: 'string', liaison: 'string', status: 'string', lastSync: 'string',
-});
-const isFrequency = (v: unknown): v is string => typeof v === 'string' && /^\d{4}$/.test(v);
-const isShift = (v: unknown): v is typeof DEFAULT_SHIFT =>
-  typeof v === 'object' && v !== null &&
-  typeof (v as Record<string, unknown>).commanderName === 'string' &&
-  typeof (v as Record<string, unknown>).shiftName === 'string';
 
-// Saves from before dates were added get today's date rather than being discarded
-const addToday = (field: string) => withDefault(field, () => isoDate());
+interface Props {
+  store: SharedStore;
+  onLogout: () => void;
+}
 
-const isLogs = arrayOf<LogEntry>({
-  id: 'string', date: 'string', timestamp: 'string', severity: 'string', source: 'string', action: 'string',
-});
+export default function App({ store, onLogout }: Props) {
+  const view = useSyncExternalStore(store.subscribe, store.getView);
 
-export default function App() {
+  if (!view.state) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#070d19] font-['Assistant',sans-serif] text-slate-300">
+        <div className="flex items-center gap-3 text-sm" role="status">
+          <span className="h-3 w-3 animate-ping rounded-full bg-cyan-400" />
+          {view.status === 'offline' ? 'אין חיבור לשרת - מנסה שוב…' : 'מתחבר לשרת…'}
+        </div>
+      </div>
+    );
+  }
+
+  return <Dashboard store={store} view={view} state={view.state} onLogout={onLogout} />;
+}
+
+function Dashboard({
+  store,
+  view,
+  state,
+  onLogout,
+}: Props & { view: StoreView; state: SharedState }) {
+  const { milestones, incidents, units, agencies, logs, alertLevel, mainFrequency, shift } = state;
+  const online = view.status === 'online';
+
   // Radio Transmission Live Toast — one timer, so a new message never gets cut short by an older one
-  const [toast, setToast] = useState<{ text: string; ms: number; key: number } | null>(null);
-  const showToast = useCallback((text: string, ms = 4000) => {
-    setToast({ text, ms, key: Date.now() });
+  const [toast, setToast] = useState<{ text: string; ms: number; key: number; critical?: boolean } | null>(null);
+  const showToast = useCallback((text: string, ms = 4000, critical = false) => {
+    setToast({ text, ms, key: Date.now(), critical });
   }, []);
   useEffect(() => {
     if (!toast) return;
@@ -99,35 +67,11 @@ export default function App() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Warn once if the browser refuses to save (private mode, blocked storage, full quota)
-  const saveErrorShown = useRef(false);
-  const onSaveError = useCallback(() => {
-    if (saveErrorShown.current) return;
-    saveErrorShown.current = true;
-    showToast('השמירה בדפדפן נכשלה - השינויים יישמרו רק עד רענון הדף', 7000);
-  }, [showToast]);
-
-  // Everything below is saved to the browser (localStorage) and restored on reload
-  const [currentScreen, setCurrentScreen] = usePersistentState('screen', () => 'clock' as ViewScreen, isScreen, onSaveError);
-  const [alertLevel, setAlertLevel] = usePersistentState('alertLevel', () => DEFAULT_ALERT, isAlertLevel, onSaveError);
-  const [audioEnabled, setAudioEnabled] = usePersistentState('audio', () => true, isBoolean, onSaveError);
-  const [milestones, setMilestones] = usePersistentState(
-    'milestones', () => buildDemoMilestones(), isMilestones, onSaveError, addToday('scheduledDate')
-  );
-  const [incidents, setIncidents] = usePersistentState(
-    'incidents', () => buildDemoIncidents(), isIncidents, onSaveError, addToday('date')
-  );
-  const [units, setUnits] = usePersistentState('units', () => INITIAL_UNITS, isUnits, onSaveError);
-  const [logs, setLogs] = usePersistentState('logs', () => buildDemoLogs(), isLogs, onSaveError, addToday('date'));
-  const [mainFrequency, setMainFrequency] = usePersistentState(
-    'frequency', () => DEFAULT_MAIN_FREQUENCY, isFrequency, onSaveError
-  );
-  const [shift, setShift] = usePersistentState('shift', () => DEFAULT_SHIFT, isShift, onSaveError);
-  const [agencies, setAgencies] = usePersistentState('agencies', () => INITIAL_AGENCIES, isAgencies, onSaveError);
+  const [currentScreen, setCurrentScreen] = usePersistentState('screen', () => 'clock' as ViewScreen, isScreen);
+  const [audioEnabled, setAudioEnabled] = usePersistentState('audio', () => true, isBoolean);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Modals state
-  // Store the id, not a copy, so the modal always shows the current row
+  // Store the id, not a copy, so the modal always shows the current row (including other stations' edits)
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
   const selectedMilestone = milestones.find((m) => m.id === selectedMilestoneId) ?? null;
   const [isLprModalOpen, setIsLprModalOpen] = useState(false);
@@ -141,23 +85,15 @@ export default function App() {
   }, []);
   const { activeRemainingSec, nextCountdownSec } = phaseCountdowns(milestones, now);
 
-  // Live telemetry: moving units drift on the map and refresh their last contact
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setUnits((prev) =>
-        prev.map((u) => {
-          if (u.status !== 'en-route' && u.type !== 'drone') return u;
-          return {
-            ...u,
-            x: clamp(u.x + (Math.random() - 0.5) * 3, 5, 95),
-            y: clamp(u.y + (Math.random() - 0.5) * 3, 5, 95),
-            lastContact: clockTime(),
-          };
-        })
-      );
-    }, 3000);
-    return () => clearInterval(interval);
-  }, []);
+  // Alerts raised by other stations (urgent incident, alert level, drill)
+  useEffect(
+    () =>
+      store.onNotice((n) => {
+        if (audioEnabled) (n.level === 'critical' ? playEmergencyAlarm : playRadioChirp)();
+        showToast(`${n.from}: ${n.text}`, n.level === 'critical' ? 8000 : 5000, n.level === 'critical');
+      }),
+    [store, audioEnabled, showToast]
+  );
 
   // Fullscreen listener
   useEffect(() => {
@@ -202,22 +138,15 @@ export default function App() {
 
   const unresolvedIncidentsCount = incidents.filter((i) => i.status !== 'resolved').length;
 
-  // ID counters continue from the highest saved id — restarting them after a reload would
-  // hand out ids that already exist in the restored data
-  const incidentSeq = useRef(nextIdNumber(incidents.map((i) => i.id), 7300) - 1);
-  const logSeq = useRef(nextIdNumber(logs.map((l) => l.id), 500) - 1);
-
-  const appendLog = useCallback((severity: LogSeverity, source: string, action: string) => {
-    const entry: LogEntry = {
-      id: `LOG-${String(++logSeq.current).padStart(4, '0')}`,
-      date: isoDate(),
-      timestamp: clockTime(),
-      severity,
-      source,
-      action,
-    };
-    setLogs((prev) => [entry, ...prev].slice(0, MAX_LOGS));
-  }, [setLogs]);
+  /** Sends an action to the server; the change arrives back (on every station) as a patch */
+  const send = useCallback(
+    async (action: Action) => {
+      const result = await store.dispatch(action);
+      if (!result.ok) showToast(result.error, 6000, true);
+      return result;
+    },
+    [store, showToast]
+  );
 
   const handleSimulateTransmission = () => {
     showToast(`קשר "ברק" תדר ${mainFrequency}: חפ"ק לכלל הכוחות בגזרה - הגבירו עירנות בציר 60`);
@@ -225,205 +154,6 @@ export default function App() {
 
   const handlePingUnit = (callSign: string) => {
     showToast(`קריאה ישירה בקשר מוצפן אל כוח ${callSign} - בדיקת קליטה ומיקום`, 3500);
-  };
-
-  const MS_SOURCE = 'חפ"ק אג"מ מרחב יהודה';
-  const msSeq = useRef(nextIdNumber(milestones.map((m) => m.id), 100) - 1);
-
-  // Back to the demo data: clears the saved copy (other open tabs follow via the storage event)
-  const handleResetData = () => {
-    clearStored();
-    setMilestones(buildDemoMilestones());
-    setIncidents(buildDemoIncidents());
-    setUnits(INITIAL_UNITS);
-    setLogs(buildDemoLogs());
-    setAlertLevel(DEFAULT_ALERT);
-    setAgencies(INITIAL_AGENCIES);
-    setMainFrequency(DEFAULT_MAIN_FREQUENCY);
-    setShift(DEFAULT_SHIFT);
-    setSelectedMilestoneId(null);
-    showToast('הנתונים אופסו לנתוני ההדגמה', 3000);
-  };
-
-  const handleUpdateMilestoneStatus = (id: string, newStatus: MilestoneStatus) => {
-    const target = milestones.find((m) => m.id === id);
-    if (!target || target.statusType === newStatus) return;
-    // Completing the running phase promotes the next one; the target clocks follow automatically
-    setMilestones(normalizeMilestones(milestones.map((m) => (m.id === id ? { ...m, statusType: newStatus } : m))));
-    appendLog('NOMINAL', MS_SOURCE, `אבן דרך ${target.code} "${target.title}": ${STATUS_BADGE[newStatus]}`);
-  };
-
-  const handleEditMilestone = (id: string, patch: MilestonePatch, isNew: boolean) => {
-    const target = milestones.find((m) => m.id === id);
-    if (!target) return;
-    const changed = (Object.keys(patch) as (keyof MilestonePatch)[]).some((k) => patch[k] !== target[k]);
-    if (changed) setMilestones(normalizeMilestones(milestones.map((m) => (m.id === id ? { ...m, ...patch } : m))));
-    if (isNew || changed) {
-      const label = `${patch.code ?? target.code} "${patch.title ?? target.title}"`;
-      appendLog('NOMINAL', MS_SOURCE, isNew ? `הוספת אבן דרך ${label} בשעה ${patch.scheduledTime ?? target.scheduledTime}` : `עריכת אבן דרך ${label}`);
-    }
-  };
-
-  const handleAddMilestone = () => {
-    const id = `MS-${++msSeq.current}`;
-    // New row starts when the last row ends
-    const last = milestones[milestones.length - 1];
-    const start = last ? milestoneWindow(last).end : new Date(Math.ceil(now.getTime() / (5 * 60_000)) * 5 * 60_000);
-    const row: Milestone = {
-      id,
-      code: `M-${milestones.length + 1}`,
-      title: 'משימה חדשה',
-      scheduledDate: isoDate(start),
-      scheduledTime: hhmm(start),
-      durationMin: 30,
-      owner: '',
-      description: '',
-      statusType: 'scheduled',
-      statusBadge: STATUS_BADGE.scheduled,
-      tasks: [],
-    };
-    setMilestones((prev) => normalizeMilestones([...prev, row]));
-    return id;
-  };
-
-  const handleDeleteMilestone = (id: string, discardDraft = false) => {
-    const target = milestones.find((m) => m.id === id);
-    setMilestones((prev) => normalizeMilestones(prev.filter((m) => m.id !== id)));
-    if (target && !discardDraft) appendLog('WARNING', MS_SOURCE, `מחיקת אבן דרך ${target.code} "${target.title}"`);
-  };
-
-  const handleAdvanceMilestone = (id: string) => {
-    if (audioEnabled) playCompleteChime();
-    handleUpdateMilestoneStatus(id, 'completed');
-  };
-
-  const handleAddIncident = (newInc: Partial<TacticalIncident>) => {
-    const fullInc: TacticalIncident = {
-      id: `INC-${++incidentSeq.current}`,
-      date: isoDate(),
-      time: clockTime(),
-      tier: newInc.tier || 2,
-      tierLabel: newInc.tierLabel || 'חריג - בבדיקה',
-      title: newInc.title || 'אירוע חריג בגזרה',
-      location: newInc.location || 'מרחב יהודה',
-      details: newInc.details || '',
-      status: 'active',
-      assignedUnits: newInc.assignedUnits || ['כוח כוננות חפ"ק'],
-    };
-
-    setIncidents((prev) => [fullInc, ...prev]);
-    appendLog(
-      fullInc.tier === 1 ? 'CRITICAL' : 'WARNING',
-      'יומן מבצעים',
-      `פתיחת אירוע חדש ${fullInc.id}: ${fullInc.title}`
-    );
-  };
-
-  const handleResolveIncident = (id: string) => {
-    setIncidents((prev) => prev.map((i) => (i.id === id ? { ...i, status: 'resolved' as const } : i)));
-    appendLog('NOMINAL', 'יומן מבצעים', `סגירת אירוע ${id}`);
-  };
-
-  const handleEditIncident = (id: string, patch: IncidentPatch) => {
-    const target = incidents.find((i) => i.id === id);
-    if (!target) return;
-    const changed = (Object.keys(patch) as (keyof IncidentPatch)[]).filter(
-      (k) => JSON.stringify(patch[k]) !== JSON.stringify(target[k])
-    );
-    if (changed.length === 0) return;
-    setIncidents((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
-
-    const notes: string[] = [];
-    if (patch.status && patch.status !== target.status) {
-      notes.push(`סטטוס: ${INCIDENT_STATUS_LABEL[target.status]} ← ${INCIDENT_STATUS_LABEL[patch.status]}`);
-    }
-    if (patch.tier && patch.tier !== target.tier) notes.push(`דרג ${target.tier} ← ${patch.tier}`);
-    const escalated = patch.tier === 1 && target.tier !== 1;
-    appendLog(
-      escalated ? 'CRITICAL' : 'NOMINAL',
-      'יומן מבצעים',
-      `עריכת אירוע ${id}: ${patch.title ?? target.title}${notes.length ? ` (${notes.join(', ')})` : ''}`
-    );
-  };
-
-  const handleEditUnit = (id: string, patch: UnitPatch) => {
-    const target = units.find((u) => u.id === id);
-    if (!target) return;
-    const changed = (Object.keys(patch) as (keyof UnitPatch)[]).some((k) => patch[k] !== target[k]);
-    if (!changed) return;
-
-    setUnits((prev) =>
-      prev.map((u) => {
-        if (u.id !== id) return u;
-        const next = { ...u, ...patch };
-        // Signal follows the radio link: none when offline, a fresh reading when it comes back
-        if (next.status === 'offline') next.signalStrength = 0;
-        else if (u.status === 'offline') next.signalStrength = 85;
-        if (next.status !== u.status) next.lastContact = clockTime();
-        return next;
-      })
-    );
-
-    // Incidents reference units by call sign — carry a rename over so assignments don't go stale
-    const renamed = patch.callSign && patch.callSign !== target.callSign ? patch.callSign : null;
-    if (renamed) {
-      setIncidents((prev) =>
-        prev.map((i) =>
-          i.assignedUnits.includes(target.callSign)
-            ? { ...i, assignedUnits: i.assignedUnits.map((c) => (c === target.callSign ? renamed : c)) }
-            : i
-        )
-      );
-    }
-
-    const notes: string[] = [];
-    if (renamed) notes.push(`אות קריאה: ${target.callSign} ← ${renamed}`);
-    if (patch.commander !== undefined && patch.commander !== target.commander) {
-      notes.push(`מפקד: ${target.commander || '—'} ← ${patch.commander || '—'}`);
-    }
-    if (patch.status && patch.status !== target.status) {
-      notes.push(`סטטוס: ${UNIT_STATUS[target.status].label} ← ${UNIT_STATUS[patch.status].label}`);
-    }
-    appendLog(
-      patch.status === 'offline' && target.status !== 'offline' ? 'WARNING' : 'NOMINAL',
-      'שליטה בכוחות',
-      `עריכת כוח ${renamed ?? target.callSign}${notes.length ? ` (${notes.join(', ')})` : ''}`
-    );
-  };
-
-  const handleFrequencyChange = (frequency: string) => {
-    if (frequency === mainFrequency) return;
-    setMainFrequency(frequency);
-    appendLog('WARNING', 'קשר', `החלפת תדר רשת ראשית: ${mainFrequency} ← ${frequency}`);
-  };
-
-  const handleShiftChange = (next: typeof DEFAULT_SHIFT) => {
-    if (next.commanderName === shift.commanderName && next.shiftName === shift.shiftName) return;
-    setShift(next);
-    appendLog('NOMINAL', 'מפקד משמרת', `עדכון משמרת: משמרת ${next.shiftName}, מפקד ${next.commanderName}`);
-  };
-
-  const handleEditAgency = (id: string, patch: AgencyPatch) => {
-    const target = agencies.find((a) => a.id === id);
-    if (!target) return;
-    const changed = (Object.keys(patch) as (keyof AgencyPatch)[]).some((k) => patch[k] !== target[k]);
-    if (!changed) return;
-    const statusChanged = patch.status !== undefined && patch.status !== target.status;
-    setAgencies((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, ...patch, lastSync: statusChanged ? clockTime() : a.lastSync } : a))
-    );
-
-    const contact = (a: Pick<Agency, 'frequency' | 'phone'>) => (a.frequency ? `תדר ${a.frequency}` : `טלפון ${a.phone ?? '—'}`);
-    const next = { ...target, ...patch };
-    const notes: string[] = [];
-    if (contact(next) !== contact(target)) notes.push(`${contact(target)} ← ${contact(next)}`);
-    if (statusChanged) notes.push(`סטטוס: ${AGENCY_STATUS[target.status].label} ← ${AGENCY_STATUS[next.status].label}`);
-    if (next.liaison !== target.liaison) notes.push(`קישור: ${target.liaison || '—'} ← ${next.liaison || '—'}`);
-    appendLog(
-      next.status === 'disconnected' && statusChanged ? 'WARNING' : 'NOMINAL',
-      'תיאום גורמי חוץ',
-      `עריכת גורם חוץ ${next.name}${notes.length ? ` (${notes.join(', ')})` : ''}`
-    );
   };
 
   const handleContactAgency = (agency: Agency) => {
@@ -435,22 +165,36 @@ export default function App() {
     );
   };
 
-  const handleAlertLevelChange = (level: AlertLevel) => {
-    setAlertLevel(level);
-    appendLog(level === 'פע״מ - פקודת לחימה' ? 'CRITICAL' : 'WARNING', 'מפקד משמרת', `שינוי רמת כוננות: ${level}`);
+  const handleResetData = async () => {
+    const r = await send({ type: 'demo.reset' });
+    if (r.ok) {
+      setSelectedMilestoneId(null);
+      showToast('הנתונים אופסו לנתוני ההדגמה בכל העמדות', 3000);
+    }
   };
 
-  const handleTriggerSimScenario = (name: string, description: string) => {
-    handleAlertLevelChange('פע״מ - פקודת לחימה');
-    handleAddIncident({
-      title: `תרגיל קיצון: ${name}`,
-      location: 'גזרת חברון וציר 60',
-      details: description,
-      tier: 1,
-      tierLabel: 'תרגיל - דחיפות עליונה',
-      assignedUnits: ['כלל כוחות הגזרה', 'יס"מ 9', 'רחפן תרמי'],
-    });
-    showToast(`תרגיל קיצון הופעל: ${name} - כלל הכוחות מונחים להצטרף לרשת הקשר הראשית!`, 7000);
+  const handleUpdateMilestoneStatus = (id: string, status: MilestoneStatus) =>
+    void send({ type: 'milestone.setStatus', id, status });
+  const handleEditMilestone = (id: string, patch: MilestonePatch) => void send({ type: 'milestone.update', id, patch });
+  const handleAddMilestone = (fields: MilestoneFields) => void send({ type: 'milestone.add', fields });
+  const handleDeleteMilestone = (id: string) => void send({ type: 'milestone.delete', id });
+  const handleAdvanceMilestone = (id: string) => {
+    if (audioEnabled) playCompleteChime();
+    handleUpdateMilestoneStatus(id, 'completed');
+  };
+
+  const handleAddIncident = (incident: Partial<TacticalIncident>) => void send({ type: 'incident.add', incident });
+  const handleResolveIncident = (id: string) => void send({ type: 'incident.resolve', id });
+  const handleEditIncident = (id: string, patch: IncidentPatch) => void send({ type: 'incident.update', id, patch });
+  const handleEditUnit = (id: string, patch: UnitPatch) => void send({ type: 'unit.update', id, patch });
+  const handleEditAgency = (id: string, patch: AgencyPatch) => void send({ type: 'agency.update', id, patch });
+  const handleFrequencyChange = (frequency: string) => void send({ type: 'frequency.set', frequency });
+  const handleShiftChange = (next: Shift) => void send({ type: 'shift.set', shift: next });
+  const handleAlertLevelChange = (level: AlertLevel) => void send({ type: 'alertLevel.set', level });
+
+  const handleTriggerSimScenario = async (name: string, description: string) => {
+    const r = await send({ type: 'sim.trigger', name, description });
+    if (r.ok) showToast(`תרגיל קיצון הופעל: ${name} - כלל הכוחות מונחים להצטרף לרשת הקשר הראשית!`, 7000);
   };
 
   const renderScreen = () => {
@@ -464,7 +208,7 @@ export default function App() {
                 onToggleFullscreen={toggleFullscreen}
                 isFullscreen={isFullscreen}
                 onOpenSimModal={() => setIsSimModalOpen(true)}
-                onResetData={handleResetData}
+                onResetData={() => void handleResetData()}
                 audioEnabled={audioEnabled}
                 activePhaseRemainingSec={activeRemainingSec}
                 nextPhaseCountdownSec={nextCountdownSec}
@@ -536,10 +280,24 @@ export default function App() {
         shiftName={shift.shiftName}
         onShiftChange={handleShiftChange}
         unresolvedIncidentsCount={unresolvedIncidentsCount}
+        station={view.you ?? ''}
+        stations={view.stations}
+        connection={view.status}
+        onLogout={onLogout}
       />
 
-      {/* Main Viewport Container */}
-      <main className="flex-1 w-full max-w-[1720px] mx-auto p-3 sm:p-4 flex flex-col gap-3">
+      {!online && (
+        <div role="alert" className="sticky top-[57px] z-20 flex items-center justify-center gap-2 bg-red-700/90 px-3 py-2 text-sm font-bold text-white">
+          <WifiOff size={16} />
+          מנותק מהשרת - מנסה להתחבר מחדש. הנתונים המוצגים עלולים להיות לא עדכניים ואי אפשר לערוך.
+        </div>
+      )}
+
+      {/* Main Viewport Container — read-only while disconnected, so nothing is edited against stale data */}
+      <main
+        inert={!online}
+        className={`flex-1 w-full max-w-[1720px] mx-auto p-3 sm:p-4 flex flex-col gap-3 transition-opacity ${online ? '' : 'opacity-50'}`}
+      >
         <HudCenter
           audioEnabled={audioEnabled}
           onSimulateTransmission={handleSimulateTransmission}
@@ -577,9 +335,11 @@ export default function App() {
           key={toast.key}
           role="status"
           aria-live="polite"
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-[92vw] bg-[#0e172a]/95 border-2 border-cyan-400 text-slate-100 px-4 py-2.5 rounded-md shadow-2xl flex items-center gap-3 animate-in slide-in-from-bottom"
+          className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-[92vw] bg-[#0e172a]/95 border-2 text-slate-100 px-4 py-2.5 rounded-md shadow-2xl flex items-center gap-3 animate-in slide-in-from-bottom ${
+            toast.critical ? 'border-red-500' : 'border-cyan-400'
+          }`}
         >
-          <div className="p-1.5 rounded-full bg-cyan-500/20 text-cyan-400 animate-pulse">
+          <div className={`p-1.5 rounded-full animate-pulse ${toast.critical ? 'bg-red-500/20 text-red-400' : 'bg-cyan-500/20 text-cyan-400'}`}>
             <Radio size={18} />
           </div>
           <span className="text-xs font-semibold">{toast.text}</span>
@@ -601,7 +361,7 @@ export default function App() {
       {isSimModalOpen && (
         <SimModal
           onClose={() => setIsSimModalOpen(false)}
-          onTriggerScenario={handleTriggerSimScenario}
+          onTriggerScenario={(name, description) => void handleTriggerSimScenario(name, description)}
           audioEnabled={audioEnabled}
         />
       )}

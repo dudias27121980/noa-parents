@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Map as MapIcon } from 'lucide-react';
-import { TacticalUnit, UnitStatus, UnitType } from '../types/tactical';
+import { TacticalUnit, UnitStatus } from '../types/tactical';
 import { Panel } from './ui';
+import { UNIT_STATUS_LABEL, UNIT_TYPE_LABEL } from '../shared/labels';
 import { playRadioChirp } from '../utils/audio';
 
 interface Props {
@@ -10,19 +11,13 @@ interface Props {
   audioEnabled: boolean;
 }
 
-export const UNIT_TYPE_LABEL: Record<UnitType, string> = {
-  patrol: 'סיור',
-  swat: 'יחידה מיוחדת',
-  drone: 'רחפן',
-  medical: 'רפואה',
-  command: 'פיקוד',
-};
+export { UNIT_TYPE_LABEL };
 
 export const UNIT_STATUS: Record<UnitStatus, { label: string; color: string; text: string }> = {
-  deployed: { label: 'פרוס', color: 'bg-emerald-400', text: 'text-emerald-300' },
-  'en-route': { label: 'בתנועה', color: 'bg-amber-400', text: 'text-amber-300' },
-  standby: { label: 'בהמתנה', color: 'bg-cyan-400', text: 'text-cyan-300' },
-  offline: { label: 'אין קשר', color: 'bg-red-500', text: 'text-red-300' },
+  deployed: { label: UNIT_STATUS_LABEL.deployed, color: 'bg-emerald-400', text: 'text-emerald-300' },
+  'en-route': { label: UNIT_STATUS_LABEL['en-route'], color: 'bg-amber-400', text: 'text-amber-300' },
+  standby: { label: UNIT_STATUS_LABEL.standby, color: 'bg-cyan-400', text: 'text-cyan-300' },
+  offline: { label: UNIT_STATUS_LABEL.offline, color: 'bg-red-500', text: 'text-red-300' },
 };
 
 // Schematic road overlay (percent coordinates on a 100x100 viewBox)

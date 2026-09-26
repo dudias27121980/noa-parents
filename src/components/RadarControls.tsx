@@ -99,10 +99,10 @@ export function RadarControls({
             tone={confirmReset ? 'red' : 'cyan'}
             icon={<RotateCcw size={14} />}
           >
-            {confirmReset ? 'לחץ שוב לאישור - כל השינויים יימחקו' : 'איפוס לנתוני הדגמה'}
+            {confirmReset ? 'לחץ שוב לאישור - יאפס את כל העמדות' : 'איפוס לנתוני הדגמה'}
           </ControlButton>
           <div className="flex items-center gap-1.5 pt-1 text-[10px] text-slate-500">
-            <HardDrive size={11} /> השינויים נשמרים אוטומטית בדפדפן זה
+            <HardDrive size={11} /> השינויים נשמרים בשרת ומשותפים לכל העמדות
           </div>
         </div>
       </Panel>

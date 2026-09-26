@@ -3,19 +3,14 @@ import { CheckCircle2, FileText, MapPin, Plus, Siren, Users } from 'lucide-react
 import { IncidentStatus, IncidentTier, LogEntry, LogSeverity, TacticalIncident } from '../types/tactical';
 import { Field, InlineEditor, Panel, fieldClass } from './ui';
 import { formatDate } from '../utils/time';
+import { IncidentPatch } from '../shared/protocol';
+import { INCIDENT_STATUS_LABEL, TIER_LABEL } from '../shared/labels';
+import { changedFields } from '../shared/diff';
+
+export type { IncidentPatch };
 import { playClick, playCompleteChime, playEmergencyAlarm } from '../utils/audio';
 
 type Tab = 'incidents' | 'log';
-
-export type IncidentPatch = Partial<
-  Pick<TacticalIncident, 'title' | 'location' | 'details' | 'tier' | 'tierLabel' | 'status' | 'assignedUnits'>
->;
-
-export const INCIDENT_STATUS_LABEL: Record<IncidentStatus, string> = {
-  active: 'פעיל',
-  monitoring: 'במעקב',
-  resolved: 'נסגר',
-};
 
 interface Props {
   incidents: TacticalIncident[];
@@ -31,12 +26,6 @@ const TIER_STYLE: Record<IncidentTier, string> = {
   1: 'border-red-500/70 bg-red-500/10 text-red-200',
   2: 'border-amber-400/60 bg-amber-400/10 text-amber-200',
   3: 'border-slate-600 bg-slate-600/10 text-slate-300',
-};
-
-const TIER_LABEL: Record<IncidentTier, string> = {
-  1: 'דחוף - סכנת חיים',
-  2: 'חריג - בבדיקה',
-  3: 'שגרתי',
 };
 
 export const SEVERITY_STYLE: Record<LogSeverity, string> = {
@@ -130,7 +119,7 @@ export function IncidentsScreen({
                     incident={inc}
                     onSave={(patch) => {
                       if (audioEnabled) playClick();
-                      onUpdateIncident(inc.id, patch);
+                      if (Object.keys(patch).length) onUpdateIncident(inc.id, patch);
                       setEditingId(null);
                     }}
                     onCancel={() => setEditingId(null)}
@@ -203,12 +192,13 @@ export function IncidentsScreen({
 function LogTable({ logs }: { logs: LogEntry[] }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[540px] text-xs">
+      <table className="w-full min-w-[620px] text-xs">
         <thead className="text-slate-400">
           <tr className="border-b border-slate-800">
             <th className="p-2 text-start font-semibold">תאריך</th>
             <th className="p-2 text-start font-semibold">שעה</th>
             <th className="p-2 text-start font-semibold">חומרה</th>
+            <th className="p-2 text-start font-semibold">עמדה</th>
             <th className="p-2 text-start font-semibold">מקור</th>
             <th className="p-2 text-start font-semibold">פעולה</th>
           </tr>
@@ -223,6 +213,7 @@ function LogTable({ logs }: { logs: LogEntry[] }) {
                   {l.severity}
                 </span>
               </td>
+              <td className="whitespace-nowrap p-2 font-semibold text-cyan-200">{l.station ?? '—'}</td>
               <td className="p-2 text-slate-300">{l.source}</td>
               <td className="p-2 text-slate-100">{l.action}</td>
             </tr>
@@ -316,9 +307,12 @@ function IncidentEditor({
   onCancel,
 }: {
   incident: TacticalIncident;
+  /** Only the fields changed since the editor opened */
   onSave: (patch: IncidentPatch) => void;
   onCancel: () => void;
 }) {
+  // Snapshot at open: another station may change the incident meanwhile, and only our own edits are sent
+  const [base] = useState(incident);
   const [title, setTitle] = useState(incident.title);
   const [location, setLocation] = useState(incident.location);
   const [details, setDetails] = useState(incident.details);
@@ -333,16 +327,18 @@ function IncidentEditor({
       .split(',')
       .map((u) => u.trim())
       .filter(Boolean);
-    onSave({
-      title: title.trim(),
-      location: location.trim(),
-      details: details.trim(),
-      tier,
-      // Keep a custom label (e.g. drills) unless the tier itself changed
-      tierLabel: tier === incident.tier ? incident.tierLabel : TIER_LABEL[tier],
-      status,
-      assignedUnits,
-    });
+    onSave(
+      changedFields(base, {
+        title: title.trim(),
+        location: location.trim(),
+        details: details.trim(),
+        tier,
+        // Keep a custom label (e.g. drills) unless the tier itself changed
+        tierLabel: tier === base.tier ? base.tierLabel : TIER_LABEL[tier],
+        status,
+        assignedUnits,
+      })
+    );
   };
 
   return (

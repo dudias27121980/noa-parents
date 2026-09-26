@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Check, Maximize2, Minimize2, Shield, Volume2, VolumeX, X } from 'lucide-react';
+import { Check, LogOut, Maximize2, Minimize2, Shield, Users, Volume2, VolumeX, X } from 'lucide-react';
+import { StationInfo } from '../shared/protocol';
+import { ConnectionStatus } from '../sync/store';
 import { ALERT_LEVELS, AlertLevel, ViewScreen } from '../types/tactical';
 import { playClick } from '../utils/audio';
 import { clockTime } from '../utils/time';
@@ -18,6 +20,11 @@ interface Props {
   shiftName: string;
   onShiftChange: (shift: { commanderName: string; shiftName: string }) => void;
   unresolvedIncidentsCount?: number;
+  /** This station, the stations currently connected, and the link to the server */
+  station: string;
+  stations: StationInfo[];
+  connection: ConnectionStatus;
+  onLogout: () => void;
 }
 
 const alertStyle = (level: AlertLevel) => {
@@ -46,6 +53,10 @@ export function HeaderNav({
   shiftName,
   onShiftChange,
   unresolvedIncidentsCount = 0,
+  station,
+  stations,
+  connection,
+  onLogout,
 }: Props) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -110,6 +121,8 @@ export function HeaderNav({
             ))}
           </select>
 
+          <StationsIndicator station={station} stations={stations} connection={connection} />
+
           <div className="hidden rounded border border-slate-700 px-2 py-1 font-mono text-sm text-cyan-200 sm:block" dir="ltr">
             {clockTime(now)}
           </div>
@@ -129,6 +142,14 @@ export function HeaderNav({
             title="מסך מלא"
           >
             {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          </button>
+          <button
+            onClick={onLogout}
+            className="rounded border border-slate-700 p-1.5 text-slate-300 hover:bg-white/5"
+            aria-label="יציאה מהעמדה"
+            title="יציאה מהעמדה"
+          >
+            <LogOut size={16} />
           </button>
         </div>
       </div>
@@ -196,5 +217,34 @@ function ShiftLine({
         <X size={12} />
       </button>
     </form>
+  );
+}
+
+/** "עמדה 1 · 3 עמדות" with a live dot; hover lists every connected station */
+function StationsIndicator({
+  station,
+  stations,
+  connection,
+}: {
+  station: string;
+  stations: StationInfo[];
+  connection: ConnectionStatus;
+}) {
+  const online = connection === 'online';
+  const list = stations.map((s) => (s.connections > 1 ? `${s.name} (${s.connections})` : s.name)).join('\n');
+  return (
+    <div
+      className="flex items-center gap-1.5 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300"
+      title={online ? `עמדות מחוברות:\n${list}` : 'מנותק מהשרת'}
+      aria-label={online ? `עמדה ${station}, ${stations.length} עמדות מחוברות` : 'מנותק מהשרת'}
+    >
+      <span className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-400' : 'animate-pulse bg-red-500'}`} />
+      <span className="max-w-[9rem] truncate font-semibold">{station}</span>
+      {online && (
+        <span className="hidden items-center gap-1 text-slate-400 sm:flex">
+          · <Users size={12} /> {stations.length}
+        </span>
+      )}
+    </div>
   );
 }

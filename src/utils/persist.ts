@@ -9,18 +9,8 @@ import { Dispatch, SetStateAction, useEffect, useState } from 'react';
 const PREFIX = 'tactical-ops:';
 const SCHEMA_VERSION = 1;
 
-export const STORAGE_KEYS = [
-  'screen',
-  'alertLevel',
-  'audio',
-  'milestones',
-  'incidents',
-  'units',
-  'logs',
-  'frequency',
-  'shift',
-  'agencies',
-] as const;
+// Per-station preferences only — operational data lives on the shared server
+export const STORAGE_KEYS = ['screen', 'audio'] as const;
 export type StorageKey = (typeof STORAGE_KEYS)[number];
 
 const fullKey = (key: StorageKey) => PREFIX + key;
@@ -117,9 +107,4 @@ export const withDefault =
 
 export const isBoolean = (v: unknown): v is boolean => typeof v === 'boolean';
 
-/** Next free numeric id for a prefix, e.g. nextIdNumber(['INC-7241'], 7300) -> 7300; with 'INC-7400' -> 7401 */
-export const nextIdNumber = (ids: string[], floor: number) =>
-  ids.reduce((max, id) => {
-    const n = Number(/(\d+)$/.exec(id)?.[1]);
-    return Number.isFinite(n) && n >= max ? n + 1 : max;
-  }, floor);
+export { nextIdNumber } from './ids';

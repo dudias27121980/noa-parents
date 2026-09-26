@@ -99,4 +99,6 @@ export interface LogEntry {
   severity: LogSeverity;
   source: string;
   action: string;
+  /** Station that performed the action (absent for system/demo entries) */
+  station?: string;
 }
