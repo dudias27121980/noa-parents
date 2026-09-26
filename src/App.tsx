@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ALERT_LEVELS,
   ViewScreen,
   AlertLevel,
   Milestone,
@@ -10,7 +11,7 @@ import {
   LogSeverity,
 } from './types/tactical';
 import {
-  INITIAL_MILESTONES,
+  buildDemoMilestones,
   INITIAL_KPIS,
   INITIAL_INCIDENTS,
   INITIAL_UNITS,
@@ -34,30 +35,43 @@ import { SimModal } from './components/SimModal';
 import { playCompleteChime, playEmergencyAlarm } from './utils/audio';
 import { clockTime, hhmm, todayAt } from './utils/time';
 import { STATUS_BADGE, normalizeMilestones, phaseCountdowns } from './utils/schedule';
+import {
+  arrayOf,
+  clearStored,
+  isBoolean,
+  nextIdNumber,
+  oneOf,
+  usePersistentState,
+} from './utils/persist';
+import { SCREENS } from './components/screens';
 import { Radio } from 'lucide-react';
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
+const DEFAULT_ALERT: AlertLevel = 'כוננות ג׳ - מצב מבצעי מוגבר';
+/** Oldest log entries are dropped past this, so localStorage can't fill up over a long shift */
+const MAX_LOGS = 500;
+
+// Shape checks for data restored from localStorage (anything else falls back to the demo data)
+const isScreen = oneOf<ViewScreen>(SCREENS.map((s) => s.id));
+const isAlertLevel = oneOf<AlertLevel>(ALERT_LEVELS);
+const isMilestones = arrayOf<Milestone>({
+  id: 'string', code: 'string', title: 'string', scheduledTime: 'string', durationMin: 'number',
+  owner: 'string', description: 'string', statusType: 'string', statusBadge: 'string', tasks: 'array',
+});
+const isIncidents = arrayOf<TacticalIncident>({
+  id: 'string', time: 'string', tier: 'number', tierLabel: 'string', title: 'string', location: 'string',
+  details: 'string', status: 'string', assignedUnits: 'array',
+});
+const isUnits = arrayOf<TacticalUnit>({
+  id: 'string', callSign: 'string', type: 'string', status: 'string', commander: 'string', personnel: 'number',
+  sector: 'string', x: 'number', y: 'number', lastContact: 'string', signalStrength: 'number',
+});
+const isLogs = arrayOf<LogEntry>({
+  id: 'string', timestamp: 'string', severity: 'string', source: 'string', action: 'string',
+});
+
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<ViewScreen>('clock');
-  const [alertLevel, setAlertLevel] = useState<AlertLevel>('כוננות ג׳ - מצב מבצעי מוגבר');
-  const [audioEnabled, setAudioEnabled] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-
-  // Tactical Data state
-  const [milestones, setMilestones] = useState<Milestone[]>(INITIAL_MILESTONES);
-  const [incidents, setIncidents] = useState<TacticalIncident[]>(INITIAL_INCIDENTS);
-  const [units, setUnits] = useState<TacticalUnit[]>(INITIAL_UNITS);
-  const [agencies] = useState(INITIAL_AGENCIES);
-  const [logs, setLogs] = useState<LogEntry[]>(INITIAL_LOGS);
-
-  // Modals state
-  // Store the id, not a copy, so the modal always shows the current row
-  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
-  const selectedMilestone = milestones.find((m) => m.id === selectedMilestoneId) ?? null;
-  const [isLprModalOpen, setIsLprModalOpen] = useState(false);
-  const [isSimModalOpen, setIsSimModalOpen] = useState(false);
-
   // Radio Transmission Live Toast — one timer, so a new message never gets cut short by an older one
   const [toast, setToast] = useState<{ text: string; ms: number; key: number } | null>(null);
   const showToast = useCallback((text: string, ms = 4000) => {
@@ -68,6 +82,32 @@ export default function App() {
     const t = setTimeout(() => setToast(null), toast.ms);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // Warn once if the browser refuses to save (private mode, blocked storage, full quota)
+  const saveErrorShown = useRef(false);
+  const onSaveError = useCallback(() => {
+    if (saveErrorShown.current) return;
+    saveErrorShown.current = true;
+    showToast('השמירה בדפדפן נכשלה - השינויים יישמרו רק עד רענון הדף', 7000);
+  }, [showToast]);
+
+  // Everything below is saved to the browser (localStorage) and restored on reload
+  const [currentScreen, setCurrentScreen] = usePersistentState('screen', () => 'clock' as ViewScreen, isScreen, onSaveError);
+  const [alertLevel, setAlertLevel] = usePersistentState('alertLevel', () => DEFAULT_ALERT, isAlertLevel, onSaveError);
+  const [audioEnabled, setAudioEnabled] = usePersistentState('audio', () => true, isBoolean, onSaveError);
+  const [milestones, setMilestones] = usePersistentState('milestones', () => buildDemoMilestones(), isMilestones, onSaveError);
+  const [incidents, setIncidents] = usePersistentState('incidents', () => INITIAL_INCIDENTS, isIncidents, onSaveError);
+  const [units, setUnits] = usePersistentState('units', () => INITIAL_UNITS, isUnits, onSaveError);
+  const [logs, setLogs] = usePersistentState('logs', () => INITIAL_LOGS, isLogs, onSaveError);
+  const [agencies] = useState(INITIAL_AGENCIES);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Modals state
+  // Store the id, not a copy, so the modal always shows the current row
+  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
+  const selectedMilestone = milestones.find((m) => m.id === selectedMilestoneId) ?? null;
+  const [isLprModalOpen, setIsLprModalOpen] = useState(false);
+  const [isSimModalOpen, setIsSimModalOpen] = useState(false);
 
   // Target clocks run on the browser clock: countdowns are derived from the schedule each tick
   const [now, setNow] = useState(() => new Date());
@@ -132,8 +172,10 @@ export default function App() {
 
   const unresolvedIncidentsCount = incidents.filter((i) => i.status !== 'resolved').length;
 
-  const incidentSeq = useRef(7300);
-  const logSeq = useRef(500);
+  // ID counters continue from the highest saved id — restarting them after a reload would
+  // hand out ids that already exist in the restored data
+  const incidentSeq = useRef(nextIdNumber(incidents.map((i) => i.id), 7300) - 1);
+  const logSeq = useRef(nextIdNumber(logs.map((l) => l.id), 500) - 1);
 
   const appendLog = useCallback((severity: LogSeverity, source: string, action: string) => {
     const entry: LogEntry = {
@@ -143,8 +185,8 @@ export default function App() {
       source,
       action,
     };
-    setLogs((prev) => [entry, ...prev]);
-  }, []);
+    setLogs((prev) => [entry, ...prev].slice(0, MAX_LOGS));
+  }, [setLogs]);
 
   const handleSimulateTransmission = () => {
     showToast('קשר "ברק" 148.950MHz: חפ"ק לכלל הכוחות בגזרה - הגבירו עירנות בציר 60');
@@ -155,7 +197,19 @@ export default function App() {
   };
 
   const MS_SOURCE = 'חפ"ק אג"מ מרחב יהודה';
-  const msSeq = useRef(100);
+  const msSeq = useRef(nextIdNumber(milestones.map((m) => m.id), 100) - 1);
+
+  // Back to the demo data: clears the saved copy (other open tabs follow via the storage event)
+  const handleResetData = () => {
+    clearStored();
+    setMilestones(buildDemoMilestones());
+    setIncidents(INITIAL_INCIDENTS);
+    setUnits(INITIAL_UNITS);
+    setLogs(INITIAL_LOGS);
+    setAlertLevel(DEFAULT_ALERT);
+    setSelectedMilestoneId(null);
+    showToast('הנתונים אופסו לנתוני ההדגמה', 3000);
+  };
 
   const handleUpdateMilestoneStatus = (id: string, newStatus: MilestoneStatus) => {
     const target = milestones.find((m) => m.id === id);
@@ -329,6 +383,7 @@ export default function App() {
                 onToggleFullscreen={toggleFullscreen}
                 isFullscreen={isFullscreen}
                 onOpenSimModal={() => setIsSimModalOpen(true)}
+                onResetData={handleResetData}
                 audioEnabled={audioEnabled}
                 activePhaseRemainingSec={activeRemainingSec}
                 nextPhaseCountdownSec={nextCountdownSec}

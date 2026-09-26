@@ -4,77 +4,78 @@ import { hhmm } from '../utils/time';
 
 // All data below is fictional demo data for the dashboard UI.
 
-// Demo schedule is laid out around the moment the app loads, so the target clocks (which run on
-// the browser clock) show a live phase instead of a day-old one. Edit times in the UI to set real ones.
-const loadTime = new Date();
-const at = (offsetMin: number) => {
-  const d = new Date(loadTime);
-  d.setMinutes(Math.floor(d.getMinutes() / 5) * 5 + offsetMin, 0, 0);
-  return hhmm(d);
-};
+// Demo schedule is laid out around the moment it is built (first load or data reset), so the target
+// clocks (which run on the browser clock) show a live phase. Edit times in the UI to set real ones.
+export const buildDemoMilestones = (loadTime: Date = new Date()): Milestone[] => {
+  const at = (offsetMin: number) => {
+    const d = new Date(loadTime);
+    d.setMinutes(Math.floor(d.getMinutes() / 5) * 5 + offsetMin, 0, 0);
+    return hhmm(d);
+  };
 
-export const INITIAL_MILESTONES: Milestone[] = normalizeMilestones([
-  {
-    id: 'MS-01',
-    code: 'H-60',
-    title: 'כינוס מפקדים ותדריך פתיחה',
-    scheduledTime: at(-90),
-    durationMin: 30,
-    owner: 'מפקד המרחב',
-    description: 'תדריך פתיחת משמרת, הצגת תמונת מצב מודיעינית וחלוקת גזרות אחריות.',
-    statusType: 'completed',
-    statusBadge: '',
-    tasks: ['הצגת תמונת מודיעין', 'חלוקת גזרות', 'אישור נהלי קשר'],
-  },
-  {
-    id: 'MS-02',
-    code: 'H-30',
-    title: 'פריסת מחסומים בצירים ראשיים',
-    scheduledTime: at(-60),
-    durationMin: 35,
-    owner: 'מפקד פלוגת סיור',
-    description: 'הצבת מחסומים ניידים בצומתי מפתח לאורך ציר 60 וציר 35, כולל מצלמות LPR.',
-    statusType: 'completed',
-    statusBadge: '',
-    tasks: ['מחסום צומת הגוש', 'מחסום כניסה צפונית', 'חיבור מצלמות LPR'],
-  },
-  {
-    id: 'MS-03',
-    code: 'H-HOUR',
-    title: 'סריקה ממוקדת במרחב חברון',
-    scheduledTime: at(-25),
-    durationMin: 45,
-    owner: 'מפקד יס"מ',
-    description: 'סריקה בגזרה המזרחית בליווי רחפן תרמי. דיווח מצב כל 10 דקות לחפ"ק.',
-    statusType: 'active',
-    statusBadge: '',
-    tasks: ['כניסה לגזרה', 'סריקת מבנים 1-12', 'סריקת מבנים 13-24', 'יציאה ודיווח'],
-  },
-  {
-    id: 'MS-04',
-    code: 'H+45',
-    title: 'החלפת כוחות וריענון',
-    scheduledTime: at(25),
-    durationMin: 40,
-    owner: 'קצין אג"מ',
-    description: 'החלפת כוחות הסיור במחסומים, תדלוק ורענון ציוד.',
-    statusType: 'next',
-    statusBadge: '',
-    tasks: ['תיאום זמני החלפה', 'תדלוק רכבים', 'העברת מקל'],
-  },
-  {
-    id: 'MS-05',
-    code: 'H+120',
-    title: 'סיכום ביניים ותחקיר חם',
-    scheduledTime: at(70),
-    durationMin: 30,
-    owner: 'מפקד המרחב',
-    description: 'סיכום ביניים של הפעילות, הפקת לקחים ראשוניים ועדכון דרג ממונה.',
-    statusType: 'scheduled',
-    statusBadge: '',
-    tasks: ['איסוף דיווחים', 'תחקיר חם', 'דיווח לדרג ממונה'],
-  },
-]);
+  return normalizeMilestones([
+    {
+      id: 'MS-01',
+      code: 'H-60',
+      title: 'כינוס מפקדים ותדריך פתיחה',
+      scheduledTime: at(-90),
+      durationMin: 30,
+      owner: 'מפקד המרחב',
+      description: 'תדריך פתיחת משמרת, הצגת תמונת מצב מודיעינית וחלוקת גזרות אחריות.',
+      statusType: 'completed',
+      statusBadge: '',
+      tasks: ['הצגת תמונת מודיעין', 'חלוקת גזרות', 'אישור נהלי קשר'],
+    },
+    {
+      id: 'MS-02',
+      code: 'H-30',
+      title: 'פריסת מחסומים בצירים ראשיים',
+      scheduledTime: at(-60),
+      durationMin: 35,
+      owner: 'מפקד פלוגת סיור',
+      description: 'הצבת מחסומים ניידים בצומתי מפתח לאורך ציר 60 וציר 35, כולל מצלמות LPR.',
+      statusType: 'completed',
+      statusBadge: '',
+      tasks: ['מחסום צומת הגוש', 'מחסום כניסה צפונית', 'חיבור מצלמות LPR'],
+    },
+    {
+      id: 'MS-03',
+      code: 'H-HOUR',
+      title: 'סריקה ממוקדת במרחב חברון',
+      scheduledTime: at(-25),
+      durationMin: 45,
+      owner: 'מפקד יס"מ',
+      description: 'סריקה בגזרה המזרחית בליווי רחפן תרמי. דיווח מצב כל 10 דקות לחפ"ק.',
+      statusType: 'active',
+      statusBadge: '',
+      tasks: ['כניסה לגזרה', 'סריקת מבנים 1-12', 'סריקת מבנים 13-24', 'יציאה ודיווח'],
+    },
+    {
+      id: 'MS-04',
+      code: 'H+45',
+      title: 'החלפת כוחות וריענון',
+      scheduledTime: at(25),
+      durationMin: 40,
+      owner: 'קצין אג"מ',
+      description: 'החלפת כוחות הסיור במחסומים, תדלוק ורענון ציוד.',
+      statusType: 'next',
+      statusBadge: '',
+      tasks: ['תיאום זמני החלפה', 'תדלוק רכבים', 'העברת מקל'],
+    },
+    {
+      id: 'MS-05',
+      code: 'H+120',
+      title: 'סיכום ביניים ותחקיר חם',
+      scheduledTime: at(70),
+      durationMin: 30,
+      owner: 'מפקד המרחב',
+      description: 'סיכום ביניים של הפעילות, הפקת לקחים ראשוניים ועדכון דרג ממונה.',
+      statusType: 'scheduled',
+      statusBadge: '',
+      tasks: ['איסוף דיווחים', 'תחקיר חם', 'דיווח לדרג ממונה'],
+    },
+  ]);
+};
 
 export const INITIAL_KPIS: KpiCard[] = [
   {

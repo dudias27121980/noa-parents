@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { Crosshair, Maximize2, Minimize2, Timer, Zap } from 'lucide-react';
+import { ReactNode, useEffect, useState } from 'react';
+import { Crosshair, HardDrive, Maximize2, Minimize2, RotateCcw, Timer, Zap } from 'lucide-react';
 import { Panel } from './ui';
 import { playClick } from '../utils/audio';
 import { formatDuration } from '../utils/time';
@@ -8,6 +8,7 @@ interface Props {
   onToggleFullscreen: () => void;
   isFullscreen: boolean;
   onOpenSimModal: () => void;
+  onResetData: () => void;
   audioEnabled: boolean;
   /** Seconds until the active phase ends / the next phase starts (negative = overdue), null = none */
   activePhaseRemainingSec: number | null;
@@ -18,10 +19,19 @@ export function RadarControls({
   onToggleFullscreen,
   isFullscreen,
   onOpenSimModal,
+  onResetData,
   audioEnabled,
   activePhaseRemainingSec,
   nextPhaseCountdownSec,
 }: Props) {
+  // Reset wipes everything saved in the browser, so it takes a second click to confirm
+  const [confirmReset, setConfirmReset] = useState(false);
+  useEffect(() => {
+    if (!confirmReset) return;
+    const t = setTimeout(() => setConfirmReset(false), 4000);
+    return () => clearTimeout(t);
+  }, [confirmReset]);
+
   const withClick = (fn: () => void) => () => {
     if (audioEnabled) playClick();
     fn();
@@ -77,6 +87,23 @@ export function RadarControls({
           >
             {isFullscreen ? 'יציאה ממסך מלא' : 'מצב מסך מלא (וידאו-וול)'}
           </ControlButton>
+          <ControlButton
+            onClick={withClick(() => {
+              if (confirmReset) {
+                setConfirmReset(false);
+                onResetData();
+              } else {
+                setConfirmReset(true);
+              }
+            })}
+            tone={confirmReset ? 'red' : 'cyan'}
+            icon={<RotateCcw size={14} />}
+          >
+            {confirmReset ? 'לחץ שוב לאישור - כל השינויים יימחקו' : 'איפוס לנתוני הדגמה'}
+          </ControlButton>
+          <div className="flex items-center gap-1.5 pt-1 text-[10px] text-slate-500">
+            <HardDrive size={11} /> השינויים נשמרים אוטומטית בדפדפן זה
+          </div>
         </div>
       </Panel>
     </div>
