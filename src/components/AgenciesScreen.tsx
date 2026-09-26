@@ -3,8 +3,11 @@ import { Building2, Phone, Radio } from 'lucide-react';
 import { Agency, AgencyStatus } from '../types/tactical';
 import { Field, InlineEditor, Panel, StatusDot, fieldClass } from './ui';
 import { playClick, playRadioChirp } from '../utils/audio';
+import { AgencyPatch } from '../shared/protocol';
+import { AGENCY_STATUS_LABEL } from '../shared/labels';
+import { changedFields } from '../shared/diff';
 
-export type AgencyPatch = Partial<Pick<Agency, 'name' | 'role' | 'liaison' | 'frequency' | 'phone' | 'status'>>;
+export type { AgencyPatch };
 
 interface Props {
   agencies: Agency[];
@@ -14,9 +17,9 @@ interface Props {
 }
 
 export const AGENCY_STATUS: Record<AgencyStatus, { label: string; color: string; text: string }> = {
-  connected: { label: 'מחובר', color: 'bg-emerald-400', text: 'text-emerald-300' },
-  degraded: { label: 'תקשורת לקויה', color: 'bg-amber-400', text: 'text-amber-300' },
-  disconnected: { label: 'מנותק', color: 'bg-red-500', text: 'text-red-300' },
+  connected: { label: AGENCY_STATUS_LABEL.connected, color: 'bg-emerald-400', text: 'text-emerald-300' },
+  degraded: { label: AGENCY_STATUS_LABEL.degraded, color: 'bg-amber-400', text: 'text-amber-300' },
+  disconnected: { label: AGENCY_STATUS_LABEL.disconnected, color: 'bg-red-500', text: 'text-red-300' },
 };
 
 export function AgenciesScreen({ agencies, onUpdateAgency, onContactAgency, audioEnabled }: Props) {
@@ -43,7 +46,7 @@ export function AgenciesScreen({ agencies, onUpdateAgency, onContactAgency, audi
                 agency={a}
                 onSave={(patch) => {
                   if (audioEnabled) playClick();
-                  onUpdateAgency(a.id, patch);
+                  if (Object.keys(patch).length) onUpdateAgency(a.id, patch);
                   setEditingId(null);
                 }}
                 onCancel={() => setEditingId(null)}
@@ -115,9 +118,12 @@ function AgencyEditor({
   onCancel,
 }: {
   agency: Agency;
+  /** Only the fields changed since the editor opened */
   onSave: (patch: AgencyPatch) => void;
   onCancel: () => void;
 }) {
+  // Snapshot at open: another station may change the agency meanwhile, and only our own edits are sent
+  const [base] = useState(agency);
   const [name, setName] = useState(agency.name);
   const [role, setRole] = useState(agency.role);
   const [liaison, setLiaison] = useState(agency.liaison);
@@ -137,15 +143,17 @@ function AgencyEditor({
   return (
     <InlineEditor
       onSubmit={() =>
-        onSave({
-          name: name.trim(),
-          role: role.trim(),
-          liaison: liaison.trim(),
-          status,
-          // Only the chosen contact method is kept, so the card never shows a stale one
-          frequency: method === 'radio' ? frequency : null,
-          phone: method === 'phone' ? phone.trim() : null,
-        })
+        onSave(
+          changedFields(base, {
+            name: name.trim(),
+            role: role.trim(),
+            liaison: liaison.trim(),
+            status,
+            // Only the chosen contact method is kept, so the card never shows a stale one
+            frequency: method === 'radio' ? frequency : null,
+            phone: method === 'phone' ? phone.trim() : null,
+          })
+        )
       }
       onCancel={onCancel}
       invalid={invalid}

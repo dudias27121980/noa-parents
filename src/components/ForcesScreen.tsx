@@ -4,8 +4,10 @@ import { TacticalUnit, UnitStatus, UnitType } from '../types/tactical';
 import { Field, InlineEditor, Panel, StatusDot, fieldClass } from './ui';
 import { playClick, playRadioChirp } from '../utils/audio';
 import { UNIT_STATUS, UNIT_TYPE_LABEL } from './TacticalMapScreen';
+import { UnitPatch } from '../shared/protocol';
+import { changedFields } from '../shared/diff';
 
-export type UnitPatch = Partial<Pick<TacticalUnit, 'callSign' | 'type' | 'status' | 'commander' | 'personnel' | 'sector'>>;
+export type { UnitPatch };
 
 interface Props {
   units: TacticalUnit[];
@@ -57,7 +59,7 @@ export function ForcesScreen({ units, onPingUnit, onUpdateUnit, audioEnabled }: 
                 takenCallSigns={units.filter((o) => o.id !== u.id).map((o) => o.callSign)}
                 onSave={(patch) => {
                   if (audioEnabled) playClick();
-                  onUpdateUnit(u.id, patch);
+                  if (Object.keys(patch).length) onUpdateUnit(u.id, patch);
                   setEditingId(null);
                 }}
                 onCancel={() => setEditingId(null)}
@@ -124,9 +126,12 @@ function UnitEditor({
 }: {
   unit: TacticalUnit;
   takenCallSigns: string[];
+  /** Only the fields changed since the editor opened */
   onSave: (patch: UnitPatch) => void;
   onCancel: () => void;
 }) {
+  // Snapshot at open: another station may change the unit meanwhile, and only our own edits are sent
+  const [base] = useState(unit);
   const [callSign, setCallSign] = useState(unit.callSign);
   const [type, setType] = useState<UnitType>(unit.type);
   const [status, setStatus] = useState<UnitStatus>(unit.status);
@@ -145,14 +150,16 @@ function UnitEditor({
   return (
     <InlineEditor
       onSubmit={() =>
-        onSave({
-          callSign: callSign.trim(),
-          type,
-          status,
-          commander: commander.trim(),
-          personnel: personnelNum,
-          sector: sector.trim(),
-        })
+        onSave(
+          changedFields(base, {
+            callSign: callSign.trim(),
+            type,
+            status,
+            commander: commander.trim(),
+            personnel: personnelNum,
+            sector: sector.trim(),
+          })
+        )
       }
       onCancel={onCancel}
       invalid={invalid}

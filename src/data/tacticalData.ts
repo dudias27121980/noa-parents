@@ -1,4 +1,4 @@
-import { Agency, KpiCard, LogEntry, Milestone, TacticalIncident, TacticalUnit } from '../types/tactical';
+import { Agency, AlertLevel, KpiCard, LogEntry, Milestone, TacticalIncident, TacticalUnit } from '../types/tactical';
 import { normalizeMilestones } from '../utils/schedule';
 import { hhmm, isoDate } from '../utils/time';
 
@@ -371,3 +371,5 @@ export const SIM_SCENARIOS = [
 export const DEFAULT_MAIN_FREQUENCY = '1480';
 
 export const DEFAULT_SHIFT = { commanderName: 'נצ"מ כהן', shiftName: "ב'" };
+
+export const DEFAULT_ALERT_LEVEL: AlertLevel = 'כוננות ג׳ - מצב מבצעי מוגבר';

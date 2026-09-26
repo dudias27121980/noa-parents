@@ -3,12 +3,12 @@ import { CheckCircle2, CircleDot, Clock3, Flag, Info, Plus, Trash2 } from 'lucid
 import { Milestone, MilestoneStatus } from '../types/tactical';
 import { Field, InlineEditor, Panel, fieldClass } from './ui';
 import { playClick } from '../utils/audio';
-import { milestoneProgress, windowLabel } from '../utils/schedule';
-import { isIsoDate, parseHHMM } from '../utils/time';
+import { STATUS_BADGE, milestoneProgress, milestoneWindow, windowLabel } from '../utils/schedule';
+import { hhmm, isIsoDate, isoDate, parseHHMM } from '../utils/time';
+import { MilestoneFields, MilestonePatch } from '../shared/protocol';
+import { changedFields } from '../shared/diff';
 
-export type MilestonePatch = Partial<
-  Pick<Milestone, 'code' | 'title' | 'scheduledDate' | 'scheduledTime' | 'durationMin' | 'owner' | 'description'>
->;
+export type { MilestonePatch };
 
 interface Props {
   milestones: Milestone[];
@@ -16,11 +16,11 @@ interface Props {
   now: Date;
   onSelectMilestone: (m: Milestone) => void;
   onAdvanceMilestone: (id: string) => void;
-  onUpdateMilestone: (id: string, patch: MilestonePatch, isNew: boolean) => void;
-  /** Appends a row and returns its id so it opens straight in edit mode */
-  onAddMilestone: () => string;
-  /** discardDraft: an unsaved '+' row being thrown away (not a real deletion) */
-  onDeleteMilestone: (id: string, discardDraft?: boolean) => void;
+  /** Only the fields this station changed */
+  onUpdateMilestone: (id: string, patch: MilestonePatch) => void;
+  /** A new row from the "+" box; the server assigns its id */
+  onAddMilestone: (fields: MilestoneFields) => void;
+  onDeleteMilestone: (id: string) => void;
   audioEnabled: boolean;
 }
 
@@ -42,16 +42,30 @@ export function MilestonesTimeline({
   audioEnabled,
 }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
-  // A row created by "+" that was never saved is removed again on cancel
-  const [newRowId, setNewRowId] = useState<string | null>(null);
+  // A row being written in the "+" box; it only exists on the server once it is saved
+  const [draft, setDraft] = useState<Milestone | null>(null);
   const done = milestones.filter((m) => m.statusType === 'completed').length;
+  const busy = editingId !== null || draft !== null; // one editor at a time
 
   const click = () => audioEnabled && playClick();
 
-  const closeEditor = (saved: boolean) => {
-    if (!saved && editingId && editingId === newRowId) onDeleteMilestone(editingId, true);
-    setEditingId(null);
-    setNewRowId(null);
+  const newDraft = (): Milestone => {
+    // Starts when the last row ends (or at the next 5 minutes on an empty schedule)
+    const last = milestones[milestones.length - 1];
+    const start = last ? milestoneWindow(last).end : new Date(Math.ceil(now.getTime() / 300_000) * 300_000);
+    return {
+      id: 'draft',
+      code: `M-${milestones.length + 1}`,
+      title: 'משימה חדשה',
+      scheduledDate: isoDate(start),
+      scheduledTime: hhmm(start),
+      durationMin: 30,
+      owner: '',
+      description: '',
+      statusType: 'scheduled',
+      statusBadge: STATUS_BADGE.scheduled,
+      tasks: [],
+    };
   };
 
   return (
@@ -75,24 +89,24 @@ export function MilestonesTimeline({
               {editingId === m.id ? (
                 <MilestoneEditor
                   milestone={m}
-                  isNew={m.id === newRowId}
-                  onSave={(patch) => {
+                  isNew={false}
+                  onSave={(fields, base) => {
                     click();
-                    onUpdateMilestone(m.id, patch, m.id === newRowId);
-                    closeEditor(true);
+                    const patch = changedFields(base, fields);
+                    if (Object.keys(patch).length) onUpdateMilestone(m.id, patch);
+                    setEditingId(null);
                   }}
-                  onCancel={() => closeEditor(false)}
+                  onCancel={() => setEditingId(null)}
                   onDelete={() => {
                     click();
                     onDeleteMilestone(m.id);
                     setEditingId(null);
-                    setNewRowId(null);
                   }}
                 />
               ) : (
                 <div
                   onDoubleClick={() => {
-                    if (editingId) return; // one editor at a time
+                    if (busy) return;
                     click();
                     setEditingId(m.id);
                   }}
@@ -156,18 +170,33 @@ export function MilestonesTimeline({
           );
         })}
 
+        {draft && (
+          <li className="relative">
+            <span className="absolute -start-[27px] top-3 h-3.5 w-3.5 rounded-full border-2 border-slate-400 bg-slate-600" />
+            <MilestoneEditor
+              milestone={draft}
+              isNew
+              onSave={(fields) => {
+                click();
+                onAddMilestone(fields);
+                setDraft(null);
+              }}
+              onCancel={() => setDraft(null)}
+              onDelete={() => setDraft(null)}
+            />
+          </li>
+        )}
+
         {/* Last row: add a new schedule line */}
         <li className="relative">
           <span className="absolute -start-[27px] top-3 h-3.5 w-3.5 rounded-full border-2 border-dashed border-slate-500 bg-[#0b1426]" />
           <button
             onClick={() => {
-              if (editingId) return;
+              if (busy) return;
               click();
-              const id = onAddMilestone();
-              setNewRowId(id);
-              setEditingId(id);
+              setDraft(newDraft());
             }}
-            disabled={!!editingId}
+            disabled={busy}
             className="flex w-full items-center justify-center gap-2 rounded border-2 border-dashed border-cyan-800/70 p-3 text-sm font-bold text-cyan-300/80 transition hover:border-cyan-500 hover:bg-cyan-500/5 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Plus size={18} /> הוספת שורה ללו״ז
@@ -187,10 +216,13 @@ function MilestoneEditor({
 }: {
   milestone: Milestone;
   isNew: boolean;
-  onSave: (patch: MilestonePatch) => void;
+  /** All editable fields, plus the row as it was when editing began (to work out what changed) */
+  onSave: (fields: MilestoneFields, base: Milestone) => void;
   onCancel: () => void;
   onDelete: () => void;
 }) {
+  // Snapshot at open: another station may change the row meanwhile, and only our own edits are sent
+  const [base] = useState(milestone);
   const [code, setCode] = useState(milestone.code);
   const [title, setTitle] = useState(milestone.title);
   const [date, setDate] = useState(milestone.scheduledDate);
@@ -210,15 +242,18 @@ function MilestoneEditor({
   const invalid = errors.title || errors.date || errors.time || errors.duration;
 
   const save = () =>
-    onSave({
-      code: code.trim() || milestone.code,
-      title: title.trim(),
-      scheduledDate: date,
-      scheduledTime: time,
-      durationMin: durationNum,
-      owner: owner.trim(),
-      description: description.trim(),
-    });
+    onSave(
+      {
+        code: code.trim() || base.code,
+        title: title.trim(),
+        scheduledDate: date,
+        scheduledTime: time,
+        durationMin: durationNum,
+        owner: owner.trim(),
+        description: description.trim(),
+      },
+      base
+    );
 
   return (
     <InlineEditor
