@@ -1,0 +1,63 @@
+import { AlertTriangle, Building2, Route, Users } from 'lucide-react';
+import { KpiAction, KpiCard, KpiTone } from '../types/tactical';
+
+interface Props {
+  kpis: KpiCard[];
+  onOpenLprAlert: () => void;
+  onOpenForces: () => void;
+  onOpenRoutes: () => void;
+  onOpenAgencies: () => void;
+}
+
+const TONE: Record<KpiTone, { ring: string; text: string; bar: string }> = {
+  critical: { ring: 'border-red-500/60 hover:border-red-400', text: 'text-red-300', bar: 'bg-red-500' },
+  warning: { ring: 'border-amber-400/50 hover:border-amber-300', text: 'text-amber-300', bar: 'bg-amber-400' },
+  nominal: { ring: 'border-emerald-500/40 hover:border-emerald-400', text: 'text-emerald-300', bar: 'bg-emerald-500' },
+  info: { ring: 'border-cyan-500/40 hover:border-cyan-400', text: 'text-cyan-300', bar: 'bg-cyan-400' },
+};
+
+const ICON: Record<KpiAction, typeof Users> = {
+  lpr: AlertTriangle,
+  forces: Users,
+  routes: Route,
+  agencies: Building2,
+};
+
+export function KpiRow({ kpis, onOpenLprAlert, onOpenForces, onOpenRoutes, onOpenAgencies }: Props) {
+  const handlers: Record<KpiAction, () => void> = {
+    lpr: onOpenLprAlert,
+    forces: onOpenForces,
+    routes: onOpenRoutes,
+    agencies: onOpenAgencies,
+  };
+
+  return (
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {kpis.map((k) => {
+        const tone = TONE[k.tone];
+        const Icon = ICON[k.action];
+        return (
+          <button
+            key={k.id}
+            onClick={handlers[k.action]}
+            className={`group relative overflow-hidden rounded-md border bg-[#0b1426] p-3 text-start transition ${tone.ring}`}
+          >
+            <span className={`absolute inset-y-0 start-0 w-1 ${tone.bar}`} />
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-xs font-semibold text-slate-400">{k.label}</span>
+              <Icon size={16} className={`${tone.text} ${k.tone === 'critical' ? 'animate-pulse' : ''}`} />
+            </div>
+            <div className="mt-1 flex items-baseline gap-1.5">
+              <span className={`font-mono text-2xl font-bold ${tone.text}`} dir="ltr">
+                {k.value}
+              </span>
+              {k.unit && <span className="text-xs text-slate-400">{k.unit}</span>}
+            </div>
+            <div className="mt-1 truncate text-[11px] text-slate-300">{k.subLabel}</div>
+            <div className="text-[10px] text-slate-500">{k.trend}</div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
