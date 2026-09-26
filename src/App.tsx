@@ -24,8 +24,9 @@ import { RadarControls } from './components/RadarControls';
 import { MilestonePatch, MilestonesTimeline } from './components/MilestonesTimeline';
 import { RightSidebar } from './components/RightSidebar';
 import { TacticalMapScreen } from './components/TacticalMapScreen';
-import { IncidentsScreen } from './components/IncidentsScreen';
-import { ForcesScreen } from './components/ForcesScreen';
+import { INCIDENT_STATUS_LABEL, IncidentPatch, IncidentsScreen } from './components/IncidentsScreen';
+import { ForcesScreen, UnitPatch } from './components/ForcesScreen';
+import { UNIT_STATUS } from './components/TacticalMapScreen';
 import { AgenciesScreen } from './components/AgenciesScreen';
 import { MilestoneModal } from './components/MilestoneModal';
 import { LprModal } from './components/LprModal';
@@ -235,6 +236,70 @@ export default function App() {
     appendLog('NOMINAL', 'יומן מבצעים', `סגירת אירוע ${id}`);
   };
 
+  const handleEditIncident = (id: string, patch: IncidentPatch) => {
+    const target = incidents.find((i) => i.id === id);
+    if (!target) return;
+    const changed = (Object.keys(patch) as (keyof IncidentPatch)[]).filter(
+      (k) => JSON.stringify(patch[k]) !== JSON.stringify(target[k])
+    );
+    if (changed.length === 0) return;
+    setIncidents((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+
+    const notes: string[] = [];
+    if (patch.status && patch.status !== target.status) {
+      notes.push(`סטטוס: ${INCIDENT_STATUS_LABEL[target.status]} ← ${INCIDENT_STATUS_LABEL[patch.status]}`);
+    }
+    if (patch.tier && patch.tier !== target.tier) notes.push(`דרג ${target.tier} ← ${patch.tier}`);
+    const escalated = patch.tier === 1 && target.tier !== 1;
+    appendLog(
+      escalated ? 'CRITICAL' : 'NOMINAL',
+      'יומן מבצעים',
+      `עריכת אירוע ${id}: ${patch.title ?? target.title}${notes.length ? ` (${notes.join(', ')})` : ''}`
+    );
+  };
+
+  const handleEditUnit = (id: string, patch: UnitPatch) => {
+    const target = units.find((u) => u.id === id);
+    if (!target) return;
+    const changed = (Object.keys(patch) as (keyof UnitPatch)[]).some((k) => patch[k] !== target[k]);
+    if (!changed) return;
+
+    setUnits((prev) =>
+      prev.map((u) => {
+        if (u.id !== id) return u;
+        const next = { ...u, ...patch };
+        // Signal follows the radio link: none when offline, a fresh reading when it comes back
+        if (next.status === 'offline') next.signalStrength = 0;
+        else if (u.status === 'offline') next.signalStrength = 85;
+        if (next.status !== u.status) next.lastContact = clockTime();
+        return next;
+      })
+    );
+
+    // Incidents reference units by call sign — carry a rename over so assignments don't go stale
+    const renamed = patch.callSign && patch.callSign !== target.callSign ? patch.callSign : null;
+    if (renamed) {
+      setIncidents((prev) =>
+        prev.map((i) =>
+          i.assignedUnits.includes(target.callSign)
+            ? { ...i, assignedUnits: i.assignedUnits.map((c) => (c === target.callSign ? renamed : c)) }
+            : i
+        )
+      );
+    }
+
+    const notes: string[] = [];
+    if (renamed) notes.push(`אות קריאה: ${target.callSign} ← ${renamed}`);
+    if (patch.status && patch.status !== target.status) {
+      notes.push(`סטטוס: ${UNIT_STATUS[target.status].label} ← ${UNIT_STATUS[patch.status].label}`);
+    }
+    appendLog(
+      patch.status === 'offline' && target.status !== 'offline' ? 'WARNING' : 'NOMINAL',
+      'שליטה בכוחות',
+      `עריכת כוח ${renamed ?? target.callSign}${notes.length ? ` (${notes.join(', ')})` : ''}`
+    );
+  };
+
   const handleAlertLevelChange = (level: AlertLevel) => {
     setAlertLevel(level);
     appendLog(level === 'פע״מ - פקודת לחימה' ? 'CRITICAL' : 'WARNING', 'מפקד משמרת', `שינוי רמת כוננות: ${level}`);
@@ -299,11 +364,14 @@ export default function App() {
             logs={logs}
             onAddIncident={handleAddIncident}
             onResolveIncident={handleResolveIncident}
+            onUpdateIncident={handleEditIncident}
             audioEnabled={audioEnabled}
           />
         );
       case 'forces':
-        return <ForcesScreen units={units} onPingUnit={handlePingUnit} audioEnabled={audioEnabled} />;
+        return (
+          <ForcesScreen units={units} onPingUnit={handlePingUnit} onUpdateUnit={handleEditUnit} audioEnabled={audioEnabled} />
+        );
       case 'agencies':
         return <AgenciesScreen agencies={agencies} audioEnabled={audioEnabled} />;
     }

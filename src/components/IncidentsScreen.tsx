@@ -1,16 +1,27 @@
 import { FormEvent, ReactNode, useState } from 'react';
 import { CheckCircle2, FileText, MapPin, Plus, Siren, Users } from 'lucide-react';
-import { IncidentTier, LogEntry, LogSeverity, TacticalIncident } from '../types/tactical';
-import { Panel } from './ui';
+import { IncidentStatus, IncidentTier, LogEntry, LogSeverity, TacticalIncident } from '../types/tactical';
+import { Field, InlineEditor, Panel, fieldClass } from './ui';
 import { playClick, playCompleteChime, playEmergencyAlarm } from '../utils/audio';
 
 type Tab = 'incidents' | 'log';
+
+export type IncidentPatch = Partial<
+  Pick<TacticalIncident, 'title' | 'location' | 'details' | 'tier' | 'tierLabel' | 'status' | 'assignedUnits'>
+>;
+
+export const INCIDENT_STATUS_LABEL: Record<IncidentStatus, string> = {
+  active: 'פעיל',
+  monitoring: 'במעקב',
+  resolved: 'נסגר',
+};
 
 interface Props {
   incidents: TacticalIncident[];
   logs: LogEntry[];
   onAddIncident: (inc: Partial<TacticalIncident>) => void;
   onResolveIncident: (id: string) => void;
+  onUpdateIncident: (id: string, patch: IncidentPatch) => void;
   audioEnabled: boolean;
   initialTab?: Tab;
 }
@@ -38,14 +49,17 @@ export function IncidentsScreen({
   logs,
   onAddIncident,
   onResolveIncident,
+  onUpdateIncident,
   audioEnabled,
   initialTab = 'incidents',
 }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState<'open' | 'all'>('open');
+  const [editingId, setEditingId] = useState<string | null>(null);
 
-  const visible = incidents.filter((i) => filter === 'all' || i.status !== 'resolved');
+  // Keep the row being edited visible even if its status changes filter membership mid-edit
+  const visible = incidents.filter((i) => filter === 'all' || i.status !== 'resolved' || i.id === editingId);
 
   return (
     <Panel
@@ -73,13 +87,14 @@ export function IncidentsScreen({
       {tab === 'incidents' ? (
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex gap-1 text-xs">
+            <div className="flex items-center gap-1 text-xs">
               <FilterButton active={filter === 'open'} onClick={() => setFilter('open')}>
                 פתוחים ({incidents.filter((i) => i.status !== 'resolved').length})
               </FilterButton>
               <FilterButton active={filter === 'all'} onClick={() => setFilter('all')}>
                 הכל ({incidents.length})
               </FilterButton>
+              <span className="ms-2 hidden text-[11px] text-slate-500 sm:inline">לחיצה כפולה על אירוע לעריכה</span>
             </div>
             <button
               onClick={() => setShowForm((v) => !v)}
@@ -107,10 +122,29 @@ export function IncidentsScreen({
           )}
 
           <ul className="flex flex-col gap-2">
-            {visible.map((inc) => (
+            {visible.map((inc) =>
+              editingId === inc.id ? (
+                <li key={inc.id}>
+                  <IncidentEditor
+                    incident={inc}
+                    onSave={(patch) => {
+                      if (audioEnabled) playClick();
+                      onUpdateIncident(inc.id, patch);
+                      setEditingId(null);
+                    }}
+                    onCancel={() => setEditingId(null)}
+                  />
+                </li>
+              ) : (
               <li
                 key={inc.id}
-                className={`rounded border p-3 ${TIER_STYLE[inc.tier]} ${inc.status === 'resolved' ? 'opacity-50' : ''}`}
+                onDoubleClick={() => {
+                  if (editingId) return; // one editor at a time
+                  if (audioEnabled) playClick();
+                  setEditingId(inc.id);
+                }}
+                title="לחיצה כפולה לעריכה"
+                className={`cursor-default select-none rounded border p-3 transition hover:brightness-125 ${TIER_STYLE[inc.tier]} ${inc.status === 'resolved' ? 'opacity-50' : ''}`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
@@ -144,6 +178,7 @@ export function IncidentsScreen({
                         if (audioEnabled) playCompleteChime();
                         onResolveIncident(inc.id);
                       }}
+                      onDoubleClick={(e) => e.stopPropagation()}
                       className="flex items-center gap-1 rounded border border-emerald-500/60 px-2 py-1 font-bold text-emerald-200 hover:bg-emerald-500/15"
                     >
                       <CheckCircle2 size={12} /> סגירת אירוע
@@ -151,7 +186,8 @@ export function IncidentsScreen({
                   )}
                 </div>
               </li>
-            ))}
+              )
+            )}
           </ul>
         </div>
       ) : (
@@ -266,5 +302,76 @@ function NewIncidentForm({
         </button>
       </div>
     </form>
+  );
+}
+
+function IncidentEditor({
+  incident,
+  onSave,
+  onCancel,
+}: {
+  incident: TacticalIncident;
+  onSave: (patch: IncidentPatch) => void;
+  onCancel: () => void;
+}) {
+  const [title, setTitle] = useState(incident.title);
+  const [location, setLocation] = useState(incident.location);
+  const [details, setDetails] = useState(incident.details);
+  const [tier, setTier] = useState<IncidentTier>(incident.tier);
+  const [status, setStatus] = useState<IncidentStatus>(incident.status);
+  const [units, setUnits] = useState(incident.assignedUnits.join(', '));
+
+  const invalid = !title.trim();
+
+  const save = () => {
+    const assignedUnits = units
+      .split(',')
+      .map((u) => u.trim())
+      .filter(Boolean);
+    onSave({
+      title: title.trim(),
+      location: location.trim(),
+      details: details.trim(),
+      tier,
+      // Keep a custom label (e.g. drills) unless the tier itself changed
+      tierLabel: tier === incident.tier ? incident.tierLabel : TIER_LABEL[tier],
+      status,
+      assignedUnits,
+    });
+  };
+
+  return (
+    <InlineEditor onSubmit={save} onCancel={onCancel} invalid={invalid} className="grid-cols-1 sm:grid-cols-4">
+      <Field label="כותרת *" className="sm:col-span-2">
+        <input className={fieldClass(invalid)} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+      </Field>
+      <Field label="דרג">
+        <select className={fieldClass()} value={tier} onChange={(e) => setTier(Number(e.target.value) as IncidentTier)}>
+          {([1, 2, 3] as const).map((t) => (
+            <option key={t} value={t} className="bg-[#0b1426]">
+              דרג {t} - {TIER_LABEL[t]}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="סטטוס">
+        <select className={fieldClass()} value={status} onChange={(e) => setStatus(e.target.value as IncidentStatus)}>
+          {(Object.keys(INCIDENT_STATUS_LABEL) as IncidentStatus[]).map((st) => (
+            <option key={st} value={st} className="bg-[#0b1426]">
+              {INCIDENT_STATUS_LABEL[st]}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="מיקום" className="sm:col-span-2">
+        <input className={fieldClass()} value={location} onChange={(e) => setLocation(e.target.value)} />
+      </Field>
+      <Field label="כוחות משויכים (מופרדים בפסיק)" className="sm:col-span-2">
+        <input className={fieldClass()} value={units} onChange={(e) => setUnits(e.target.value)} />
+      </Field>
+      <Field label="פרטים" className="sm:col-span-4">
+        <textarea className={fieldClass()} rows={2} value={details} onChange={(e) => setDetails(e.target.value)} />
+      </Field>
+    </InlineEditor>
   );
 }

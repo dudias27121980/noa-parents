@@ -1,7 +1,7 @@
-import { FormEvent, KeyboardEvent, useState } from 'react';
-import { CheckCircle2, CircleDot, Clock3, Flag, Info, Plus, Save, Trash2, X } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle2, CircleDot, Clock3, Flag, Info, Plus, Trash2 } from 'lucide-react';
 import { Milestone, MilestoneStatus } from '../types/tactical';
-import { Panel } from './ui';
+import { Field, InlineEditor, Panel, fieldClass } from './ui';
 import { playClick } from '../utils/audio';
 import { endTime, milestoneProgress } from '../utils/schedule';
 import { parseHHMM } from '../utils/time';
@@ -207,9 +207,7 @@ function MilestoneEditor({
   };
   const invalid = errors.title || errors.time || errors.duration;
 
-  const submit = (e?: FormEvent) => {
-    e?.preventDefault();
-    if (invalid) return;
+  const save = () =>
     onSave({
       code: code.trim() || milestone.code,
       title: title.trim(),
@@ -218,62 +216,15 @@ function MilestoneEditor({
       owner: owner.trim(),
       description: description.trim(),
     });
-  };
-
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.stopPropagation();
-      onCancel();
-    }
-  };
-
-  const input = (bad = false) =>
-    `w-full rounded border bg-black/40 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-cyan-400 ${
-      bad ? 'border-red-500' : 'border-slate-700'
-    }`;
-  const label = 'flex flex-col gap-1 text-[11px] text-slate-400';
 
   return (
-    <form
-      onSubmit={submit}
-      onKeyDown={onKeyDown}
-      className="grid grid-cols-2 gap-2 rounded border-2 border-cyan-500/70 bg-cyan-500/5 p-3 sm:grid-cols-6"
-    >
-      <label className={`${label} sm:col-span-1`}>
-        קוד
-        <input className={input()} value={code} onChange={(e) => setCode(e.target.value)} dir="ltr" />
-      </label>
-      <label className={`${label} sm:col-span-3`}>
-        כותרת *
-        <input className={input(errors.title)} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
-      </label>
-      <label className={`${label} sm:col-span-1`}>
-        שעת התחלה *
-        <input type="time" className={input(errors.time)} value={time} onChange={(e) => setTime(e.target.value)} dir="ltr" />
-      </label>
-      <label className={`${label} sm:col-span-1`}>
-        משך (דק׳) *
-        <input
-          type="number"
-          min={1}
-          max={1440}
-          className={input(errors.duration)}
-          value={duration}
-          onChange={(e) => setDuration(e.target.value)}
-          dir="ltr"
-        />
-      </label>
-      <label className={`${label} col-span-2 sm:col-span-2`}>
-        אחראי
-        <input className={input()} value={owner} onChange={(e) => setOwner(e.target.value)} />
-      </label>
-      <label className={`${label} col-span-2 sm:col-span-4`}>
-        תיאור
-        <input className={input()} value={description} onChange={(e) => setDescription(e.target.value)} />
-      </label>
-
-      <div className="col-span-2 flex flex-wrap items-center justify-between gap-2 pt-1 sm:col-span-6">
-        {confirmDelete ? (
+    <InlineEditor
+      onSubmit={save}
+      onCancel={onCancel}
+      invalid={invalid}
+      className="grid-cols-2 sm:grid-cols-6"
+      extraActions={
+        confirmDelete ? (
           <span className="flex items-center gap-2 text-xs text-red-300">
             למחוק את השורה?
             <button type="button" onClick={onDelete} className="rounded bg-red-600 px-2 py-1 font-bold text-white hover:bg-red-500">
@@ -291,25 +242,35 @@ function MilestoneEditor({
           >
             <Trash2 size={13} /> מחיקה
           </button>
-        )}
-        <div className="flex items-center gap-2">
-          <span className="hidden text-[10px] text-slate-500 sm:inline">Enter לשמירה · Esc לביטול</span>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="flex items-center gap-1 rounded px-3 py-1.5 text-xs text-slate-300 hover:bg-white/5"
-          >
-            <X size={13} /> ביטול
-          </button>
-          <button
-            type="submit"
-            disabled={invalid}
-            className="flex items-center gap-1 rounded bg-cyan-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Save size={13} /> שמירה
-          </button>
-        </div>
-      </div>
-    </form>
+        )
+      }
+    >
+      <Field label="קוד" className="sm:col-span-1">
+        <input className={fieldClass()} value={code} onChange={(e) => setCode(e.target.value)} dir="ltr" />
+      </Field>
+      <Field label="כותרת *" className="sm:col-span-3">
+        <input className={fieldClass(errors.title)} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+      </Field>
+      <Field label="שעת התחלה *" className="sm:col-span-1">
+        <input type="time" className={fieldClass(errors.time)} value={time} onChange={(e) => setTime(e.target.value)} dir="ltr" />
+      </Field>
+      <Field label="משך (דק׳) *" className="sm:col-span-1">
+        <input
+          type="number"
+          min={1}
+          max={1440}
+          className={fieldClass(errors.duration)}
+          value={duration}
+          onChange={(e) => setDuration(e.target.value)}
+          dir="ltr"
+        />
+      </Field>
+      <Field label="אחראי" className="col-span-2 sm:col-span-2">
+        <input className={fieldClass()} value={owner} onChange={(e) => setOwner(e.target.value)} />
+      </Field>
+      <Field label="תיאור" className="col-span-2 sm:col-span-4">
+        <input className={fieldClass()} value={description} onChange={(e) => setDescription(e.target.value)} />
+      </Field>
+    </InlineEditor>
   );
 }
