@@ -16,6 +16,7 @@ interface Props {
   isFullscreen: boolean;
   commanderName: string;
   shiftName: string;
+  unresolvedIncidentsCount?: number;
 }
 
 const alertStyle = (level: AlertLevel) => {
@@ -42,6 +43,7 @@ export function HeaderNav({
   isFullscreen,
   commanderName,
   shiftName,
+  unresolvedIncidentsCount = 0,
 }: Props) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -82,6 +84,11 @@ export function HeaderNav({
             >
               <Icon size={14} />
               {label}
+              {id === 'incidents' && unresolvedIncidentsCount > 0 && (
+                <span className="rounded bg-red-500/80 px-1 font-mono text-[10px] text-white lg:hidden">
+                  {unresolvedIncidentsCount}
+                </span>
+              )}
             </button>
           ))}
         </nav>

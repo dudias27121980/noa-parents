@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock3, Flag, PlayCircle } from 'lucide-react';
+import { CheckCircle2, Clock3, Flag } from 'lucide-react';
 import { Milestone, MilestoneStatus } from '../types/tactical';
 import { ModalShell } from './ui';
 import { STATUS_STYLE } from './MilestonesTimeline';
@@ -54,14 +54,6 @@ export function MilestoneModal({ milestone, onClose, onUpdateStatus, audioEnable
         </div>
         {milestone.statusType !== 'completed' && (
           <div className="flex justify-end gap-2 border-t border-white/10 pt-3">
-            {milestone.statusType !== 'active' && (
-              <button
-                onClick={() => update('active')}
-                className="flex items-center gap-1 rounded border border-cyan-500/60 px-3 py-1.5 text-xs font-bold text-cyan-200 hover:bg-cyan-500/15"
-              >
-                <PlayCircle size={14} /> הפעל שלב
-              </button>
-            )}
             <button
               onClick={() => update('completed')}
               className="flex items-center gap-1 rounded bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-500"

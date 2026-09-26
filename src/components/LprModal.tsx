@@ -1,11 +1,8 @@
-import { useEffect } from 'react';
 import { AlertTriangle, Camera, Car } from 'lucide-react';
 import { ModalShell } from './ui';
-import { playEmergencyAlarm } from '../utils/audio';
 
 interface Props {
   onClose: () => void;
-  audioEnabled: boolean;
 }
 
 const HITS = [
@@ -14,11 +11,9 @@ const HITS = [
   { time: '06:41:03', camera: 'LPR-35-02 מחסום 300', plate: '89-012-34', vehicle: 'טנדר איסוזו כסוף', reason: 'רכב גנוב' },
 ];
 
-export function LprModal({ onClose, audioEnabled }: Props) {
-  useEffect(() => {
-    if (audioEnabled) playEmergencyAlarm();
-  }, [audioEnabled]);
-
+// The alarm is played by the opener (on click), not on mount: a mount effect fires twice under
+// StrictMode and replays whenever the audio toggle changes while the modal is open.
+export function LprModal({ onClose }: Props) {
   return (
     <ModalShell title="התראות LPR - זיהוי לוחיות רישוי" icon={<AlertTriangle size={18} />} onClose={onClose} tone="red" wide>
       <div className="flex flex-col gap-2">

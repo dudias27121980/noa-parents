@@ -31,7 +31,7 @@ import { MilestoneModal } from './components/MilestoneModal';
 import { LprModal } from './components/LprModal';
 import { SimModal } from './components/SimModal';
 import { BlackBoxModal } from './components/BlackBoxModal';
-import { playCompleteChime } from './utils/audio';
+import { playCompleteChime, playEmergencyAlarm } from './utils/audio';
 import { clockTime, formatDuration, shortHash } from './utils/time';
 import { Radio } from 'lucide-react';
 
@@ -40,6 +40,27 @@ const STATUS_BADGE: Record<MilestoneStatus, string> = {
   active: 'פעיל כעת',
   next: 'הבא בתור',
   scheduled: 'מתוכנן',
+};
+
+const PHASE_MIN_SEC = 15 * 60;
+const PHASE_GAP_SEC = 30 * 60;
+
+/**
+ * Milestones run strictly in order: exactly one 'active' (the first open one unless one is
+ * already running), the following open one is 'next', the rest 'scheduled'.
+ */
+const advanceMilestones = (list: Milestone[], id: string, status: MilestoneStatus): Milestone[] => {
+  const updated = list.map((m) =>
+    m.id === id ? { ...m, statusType: status, progressPercent: status === 'completed' ? 100 : m.progressPercent } : m
+  );
+  const open = updated.filter((m) => m.statusType !== 'completed');
+  const active = open.find((m) => m.statusType === 'active') ?? open[0];
+  const upcoming = open.find((m) => m !== active);
+  return updated.map((m) => {
+    if (m.statusType === 'completed') return { ...m, statusBadge: STATUS_BADGE.completed };
+    const statusType: MilestoneStatus = m === active ? 'active' : m === upcoming ? 'next' : 'scheduled';
+    return { ...m, statusType, statusBadge: STATUS_BADGE[statusType] };
+  });
 };
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
@@ -111,6 +132,11 @@ export default function App() {
   }, []);
 
   const toggleFullscreen = () => {
+    // iOS Safari (and some embedded browsers) don't implement the Fullscreen API at all
+    if (!document.fullscreenEnabled || typeof document.documentElement.requestFullscreen !== 'function') {
+      showToast('מסך מלא אינו נתמך בדפדפן זה', 3000);
+      return;
+    }
     const op = document.fullscreenElement
       ? document.exitFullscreen()
       : document.documentElement.requestFullscreen();
@@ -159,19 +185,21 @@ export default function App() {
   };
 
   const handleUpdateMilestoneStatus = (id: string, newStatus: MilestoneStatus) => {
-    setMilestones((prev) =>
-      prev.map((m) =>
-        m.id === id
-          ? {
-              ...m,
-              statusType: newStatus,
-              statusBadge: STATUS_BADGE[newStatus],
-              progressPercent: newStatus === 'completed' ? 100 : m.progressPercent,
-            }
-          : m
-      )
-    );
-    appendLog('NOMINAL', 'חפ"ק אג"מ מרחב יהודה', `עדכון סטטוס אבן דרך ${id} ל-${STATUS_BADGE[newStatus]}`);
+    const target = milestones.find((m) => m.id === id);
+    if (!target || target.statusType === newStatus) return;
+
+    const next = advanceMilestones(milestones, id, newStatus);
+    setMilestones(next);
+    appendLog('NOMINAL', 'חפ"ק אג"מ מרחב יהודה', `אבן דרך ${target.code} "${target.title}": ${STATUS_BADGE[newStatus]}`);
+
+    // Completing the running phase starts the next one — restart the target clocks accordingly
+    if (target.statusType === 'active' && newStatus === 'completed') {
+      const hasActive = next.some((m) => m.statusType === 'active');
+      const hasNext = next.some((m) => m.statusType === 'next');
+      const newActive = hasActive ? Math.max(nextPhaseSec, PHASE_MIN_SEC) : 0;
+      setActivePhaseSec(newActive);
+      setNextPhaseSec(hasNext ? newActive + PHASE_GAP_SEC : 0);
+    }
   };
 
   const handleAdvanceMilestone = (id: string) => {
@@ -289,6 +317,7 @@ export default function App() {
         onToggleFullscreen={toggleFullscreen}
         isFullscreen={isFullscreen}
         commanderName='נצ"מ כהן'
+        unresolvedIncidentsCount={unresolvedIncidentsCount}
         shiftName="ב'"
       />
 
@@ -298,7 +327,10 @@ export default function App() {
 
         <KpiRow
           kpis={kpis}
-          onOpenLprAlert={() => setIsLprModalOpen(true)}
+          onOpenLprAlert={() => {
+            if (audioEnabled) playEmergencyAlarm();
+            setIsLprModalOpen(true);
+          }}
           onOpenForces={() => setCurrentScreen('forces')}
           onOpenRoutes={() => setCurrentScreen('map')}
           onOpenAgencies={() => setCurrentScreen('agencies')}
@@ -342,7 +374,7 @@ export default function App() {
         />
       )}
 
-      {isLprModalOpen && <LprModal onClose={() => setIsLprModalOpen(false)} audioEnabled={audioEnabled} />}
+      {isLprModalOpen && <LprModal onClose={() => setIsLprModalOpen(false)} />}
 
       {isSimModalOpen && (
         <SimModal
