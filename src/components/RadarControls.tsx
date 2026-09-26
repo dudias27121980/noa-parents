@@ -1,26 +1,26 @@
 import type { ReactNode } from 'react';
-import { Crosshair, FileLock2, Maximize2, Minimize2, Timer, Zap } from 'lucide-react';
+import { Crosshair, Maximize2, Minimize2, Timer, Zap } from 'lucide-react';
 import { Panel } from './ui';
 import { playClick } from '../utils/audio';
+import { formatDuration } from '../utils/time';
 
 interface Props {
   onToggleFullscreen: () => void;
   isFullscreen: boolean;
   onOpenSimModal: () => void;
-  onOpenBlackBoxLogs: () => void;
   audioEnabled: boolean;
-  activePhaseRemaining: string;
-  nextPhaseCountdown: string;
+  /** Seconds until the active phase ends / the next phase starts (negative = overdue), null = none */
+  activePhaseRemainingSec: number | null;
+  nextPhaseCountdownSec: number | null;
 }
 
 export function RadarControls({
   onToggleFullscreen,
   isFullscreen,
   onOpenSimModal,
-  onOpenBlackBoxLogs,
   audioEnabled,
-  activePhaseRemaining,
-  nextPhaseCountdown,
+  activePhaseRemainingSec,
+  nextPhaseCountdownSec,
 }: Props) {
   const withClick = (fn: () => void) => () => {
     if (audioEnabled) playClick();
@@ -31,8 +31,8 @@ export function RadarControls({
     <div className="flex flex-col gap-3">
       <Panel title="שעוני יעד" icon={<Timer size={16} />}>
         <div className="flex flex-col gap-3">
-          <Countdown label="זמן נותר לשלב הפעיל" value={activePhaseRemaining} tone="text-emerald-300" />
-          <Countdown label="ספירה לשלב הבא" value={nextPhaseCountdown} tone="text-amber-300" />
+          <Countdown label="זמן נותר לשלב הפעיל" overdueLabel="חריגה בשלב הפעיל" seconds={activePhaseRemainingSec} tone="text-emerald-300" />
+          <Countdown label="ספירה לשלב הבא" overdueLabel="השלב הבא באיחור" seconds={nextPhaseCountdownSec} tone="text-amber-300" />
         </div>
       </Panel>
 
@@ -71,9 +71,6 @@ export function RadarControls({
           <ControlButton onClick={withClick(onOpenSimModal)} tone="red" icon={<Zap size={14} />}>
             הפעלת תרגיל קיצון
           </ControlButton>
-          <ControlButton onClick={withClick(onOpenBlackBoxLogs)} icon={<FileLock2 size={14} />}>
-            קופסה שחורה - יומן חתום
-          </ControlButton>
           <ControlButton
             onClick={withClick(onToggleFullscreen)}
             icon={isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
@@ -86,12 +83,30 @@ export function RadarControls({
   );
 }
 
-function Countdown({ label, value, tone }: { label: string; value: string; tone: string }) {
+function Countdown({
+  label,
+  overdueLabel,
+  seconds,
+  tone,
+}: {
+  label: string;
+  overdueLabel: string;
+  seconds: number | null;
+  tone: string;
+}) {
+  const overdue = seconds !== null && seconds < 0;
   return (
-    <div className="rounded border border-slate-800 bg-black/30 p-2">
-      <div className="text-[11px] text-slate-400">{label}</div>
-      <div className={`font-mono text-3xl font-bold tracking-wider ${tone}`} dir="ltr">
-        {value}
+    <div className={`rounded border p-2 ${overdue ? 'border-red-500/70 bg-red-500/10' : 'border-slate-800 bg-black/30'}`}>
+      <div className={`text-[11px] ${overdue ? 'font-bold text-red-300' : 'text-slate-400'}`}>
+        {overdue ? overdueLabel : label}
+      </div>
+      <div
+        className={`font-mono text-3xl font-bold tracking-wider ${
+          seconds === null ? 'text-slate-600' : overdue ? 'animate-pulse text-red-400' : tone
+        }`}
+        dir="ltr"
+      >
+        {seconds === null ? '--:--:--' : `${overdue ? '+' : ''}${formatDuration(seconds)}`}
       </div>
     </div>
   );

@@ -1,76 +1,80 @@
-import {
-  Agency,
-  BlackBoxEntry,
-  KpiCard,
-  Milestone,
-  TacticalIncident,
-  TacticalUnit,
-} from '../types/tactical';
+import { Agency, KpiCard, LogEntry, Milestone, TacticalIncident, TacticalUnit } from '../types/tactical';
+import { normalizeMilestones } from '../utils/schedule';
+import { hhmm } from '../utils/time';
 
 // All data below is fictional demo data for the dashboard UI.
 
-export const INITIAL_MILESTONES: Milestone[] = [
+// Demo schedule is laid out around the moment the app loads, so the target clocks (which run on
+// the browser clock) show a live phase instead of a day-old one. Edit times in the UI to set real ones.
+const loadTime = new Date();
+const at = (offsetMin: number) => {
+  const d = new Date(loadTime);
+  d.setMinutes(Math.floor(d.getMinutes() / 5) * 5 + offsetMin, 0, 0);
+  return hhmm(d);
+};
+
+export const INITIAL_MILESTONES: Milestone[] = normalizeMilestones([
   {
     id: 'MS-01',
     code: 'H-60',
     title: 'כינוס מפקדים ותדריך פתיחה',
-    scheduledTime: '06:00',
+    scheduledTime: at(-90),
+    durationMin: 30,
     owner: 'מפקד המרחב',
     description: 'תדריך פתיחת משמרת, הצגת תמונת מצב מודיעינית וחלוקת גזרות אחריות.',
     statusType: 'completed',
-    statusBadge: 'הושלם בהצלחה',
-    progressPercent: 100,
+    statusBadge: '',
     tasks: ['הצגת תמונת מודיעין', 'חלוקת גזרות', 'אישור נהלי קשר'],
   },
   {
     id: 'MS-02',
     code: 'H-30',
     title: 'פריסת מחסומים בצירים ראשיים',
-    scheduledTime: '06:30',
+    scheduledTime: at(-60),
+    durationMin: 35,
     owner: 'מפקד פלוגת סיור',
     description: 'הצבת מחסומים ניידים בצומתי מפתח לאורך ציר 60 וציר 35, כולל מצלמות LPR.',
     statusType: 'completed',
-    statusBadge: 'הושלם בהצלחה',
-    progressPercent: 100,
+    statusBadge: '',
     tasks: ['מחסום צומת הגוש', 'מחסום כניסה צפונית', 'חיבור מצלמות LPR'],
   },
   {
     id: 'MS-03',
     code: 'H-HOUR',
     title: 'סריקה ממוקדת במרחב חברון',
-    scheduledTime: '07:15',
+    scheduledTime: at(-25),
+    durationMin: 45,
     owner: 'מפקד יס"מ',
     description: 'סריקה בגזרה המזרחית בליווי רחפן תרמי. דיווח מצב כל 10 דקות לחפ"ק.',
     statusType: 'active',
-    statusBadge: 'פעיל כעת',
-    progressPercent: 62,
+    statusBadge: '',
     tasks: ['כניסה לגזרה', 'סריקת מבנים 1-12', 'סריקת מבנים 13-24', 'יציאה ודיווח'],
   },
   {
     id: 'MS-04',
     code: 'H+45',
     title: 'החלפת כוחות וריענון',
-    scheduledTime: '08:00',
+    scheduledTime: at(25),
+    durationMin: 40,
     owner: 'קצין אג"מ',
     description: 'החלפת כוחות הסיור במחסומים, תדלוק ורענון ציוד.',
     statusType: 'next',
-    statusBadge: 'הבא בתור',
-    progressPercent: 0,
+    statusBadge: '',
     tasks: ['תיאום זמני החלפה', 'תדלוק רכבים', 'העברת מקל'],
   },
   {
     id: 'MS-05',
     code: 'H+120',
     title: 'סיכום ביניים ותחקיר חם',
-    scheduledTime: '09:15',
+    scheduledTime: at(70),
+    durationMin: 30,
     owner: 'מפקד המרחב',
     description: 'סיכום ביניים של הפעילות, הפקת לקחים ראשוניים ועדכון דרג ממונה.',
     statusType: 'scheduled',
-    statusBadge: 'מתוכנן',
-    progressPercent: 0,
+    statusBadge: '',
     tasks: ['איסוף דיווחים', 'תחקיר חם', 'דיווח לדרג ממונה'],
   },
-];
+]);
 
 export const INITIAL_KPIS: KpiCard[] = [
   {
@@ -299,14 +303,13 @@ export const INITIAL_AGENCIES: Agency[] = [
   },
 ];
 
-export const INITIAL_BLACKBOX_LOGS: BlackBoxEntry[] = [
+export const INITIAL_LOGS: LogEntry[] = [
   {
     id: 'LOG-0412',
     timestamp: '07:02:14',
     severity: 'CRITICAL',
     source: 'מערכת LPR',
     action: 'זיהוי לוחית ברשימת מעקב - פתיחת אירוע INC-7241',
-    hash: 'a41f...9c02',
   },
   {
     id: 'LOG-0409',
@@ -314,15 +317,13 @@ export const INITIAL_BLACKBOX_LOGS: BlackBoxEntry[] = [
     severity: 'WARNING',
     source: 'יומן מבצעים',
     action: 'פתיחת אירוע INC-7238: דיווח על התקהלות',
-    hash: '7be3...11d4',
   },
   {
     id: 'LOG-0402',
     timestamp: '06:30:00',
     severity: 'NOMINAL',
     source: 'חפ"ק אג"מ מרחב יהודה',
-    action: 'עדכון סטטוס אבן דרך MS-02 ל-הושלם בהצלחה',
-    hash: '0cf9...e8a7',
+    action: 'אבן דרך H-30 "פריסת מחסומים בצירים ראשיים": הושלם בהצלחה',
   },
   {
     id: 'LOG-0398',
@@ -330,7 +331,6 @@ export const INITIAL_BLACKBOX_LOGS: BlackBoxEntry[] = [
     severity: 'NOMINAL',
     source: 'מערכת',
     action: 'פתיחת משמרת ב׳ - מפקד משמרת נצ"מ כהן',
-    hash: '5d20...b3f1',
   },
 ];
 

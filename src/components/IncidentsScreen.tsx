@@ -1,6 +1,6 @@
 import { FormEvent, ReactNode, useState } from 'react';
 import { CheckCircle2, FileText, MapPin, Plus, Siren, Users } from 'lucide-react';
-import { BlackBoxEntry, IncidentTier, LogSeverity, TacticalIncident } from '../types/tactical';
+import { IncidentTier, LogEntry, LogSeverity, TacticalIncident } from '../types/tactical';
 import { Panel } from './ui';
 import { playClick, playCompleteChime, playEmergencyAlarm } from '../utils/audio';
 
@@ -8,7 +8,7 @@ type Tab = 'incidents' | 'log';
 
 interface Props {
   incidents: TacticalIncident[];
-  logs: BlackBoxEntry[];
+  logs: LogEntry[];
   onAddIncident: (inc: Partial<TacticalIncident>) => void;
   onResolveIncident: (id: string) => void;
   audioEnabled: boolean;
@@ -161,17 +161,16 @@ export function IncidentsScreen({
   );
 }
 
-export function LogTable({ logs }: { logs: BlackBoxEntry[] }) {
+function LogTable({ logs }: { logs: LogEntry[] }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[560px] text-xs">
+      <table className="w-full min-w-[480px] text-xs">
         <thead className="text-slate-400">
           <tr className="border-b border-slate-800">
             <th className="p-2 text-start font-semibold">שעה</th>
             <th className="p-2 text-start font-semibold">חומרה</th>
             <th className="p-2 text-start font-semibold">מקור</th>
             <th className="p-2 text-start font-semibold">פעולה</th>
-            <th className="p-2 text-start font-semibold">חתימה</th>
           </tr>
         </thead>
         <tbody>
@@ -185,9 +184,6 @@ export function LogTable({ logs }: { logs: BlackBoxEntry[] }) {
               </td>
               <td className="p-2 text-slate-300">{l.source}</td>
               <td className="p-2 text-slate-100">{l.action}</td>
-              <td className="p-2 font-mono text-[10px] text-slate-500" dir="ltr">
-                {l.hash}
-              </td>
             </tr>
           ))}
         </tbody>

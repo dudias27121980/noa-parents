@@ -15,12 +15,13 @@ export interface Milestone {
   id: string;
   code: string;
   title: string;
+  /** Start time, "HH:MM" on the browser's local clock (today) */
   scheduledTime: string;
+  durationMin: number;
   owner: string;
   description: string;
   statusType: MilestoneStatus;
   statusBadge: string;
-  progressPercent: number;
   tasks: string[];
 }
 
@@ -85,11 +86,10 @@ export interface Agency {
 
 export type LogSeverity = 'NOMINAL' | 'WARNING' | 'CRITICAL';
 
-export interface BlackBoxEntry {
+export interface LogEntry {
   id: string;
   timestamp: string;
   severity: LogSeverity;
   source: string;
   action: string;
-  hash: string;
 }

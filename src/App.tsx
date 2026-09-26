@@ -6,7 +6,7 @@ import {
   MilestoneStatus,
   TacticalUnit,
   TacticalIncident,
-  BlackBoxEntry,
+  LogEntry,
   LogSeverity,
 } from './types/tactical';
 import {
@@ -15,13 +15,13 @@ import {
   INITIAL_INCIDENTS,
   INITIAL_UNITS,
   INITIAL_AGENCIES,
-  INITIAL_BLACKBOX_LOGS,
+  INITIAL_LOGS,
 } from './data/tacticalData';
 import { HeaderNav } from './components/HeaderNav';
 import { HudCenter } from './components/HudCenter';
 import { KpiRow } from './components/KpiRow';
 import { RadarControls } from './components/RadarControls';
-import { MilestonesTimeline } from './components/MilestonesTimeline';
+import { MilestonePatch, MilestonesTimeline } from './components/MilestonesTimeline';
 import { RightSidebar } from './components/RightSidebar';
 import { TacticalMapScreen } from './components/TacticalMapScreen';
 import { IncidentsScreen } from './components/IncidentsScreen';
@@ -30,38 +30,10 @@ import { AgenciesScreen } from './components/AgenciesScreen';
 import { MilestoneModal } from './components/MilestoneModal';
 import { LprModal } from './components/LprModal';
 import { SimModal } from './components/SimModal';
-import { BlackBoxModal } from './components/BlackBoxModal';
 import { playCompleteChime, playEmergencyAlarm } from './utils/audio';
-import { clockTime, formatDuration, shortHash } from './utils/time';
+import { clockTime, hhmm, todayAt } from './utils/time';
+import { STATUS_BADGE, normalizeMilestones, phaseCountdowns } from './utils/schedule';
 import { Radio } from 'lucide-react';
-
-const STATUS_BADGE: Record<MilestoneStatus, string> = {
-  completed: 'הושלם בהצלחה',
-  active: 'פעיל כעת',
-  next: 'הבא בתור',
-  scheduled: 'מתוכנן',
-};
-
-const PHASE_MIN_SEC = 15 * 60;
-const PHASE_GAP_SEC = 30 * 60;
-
-/**
- * Milestones run strictly in order: exactly one 'active' (the first open one unless one is
- * already running), the following open one is 'next', the rest 'scheduled'.
- */
-const advanceMilestones = (list: Milestone[], id: string, status: MilestoneStatus): Milestone[] => {
-  const updated = list.map((m) =>
-    m.id === id ? { ...m, statusType: status, progressPercent: status === 'completed' ? 100 : m.progressPercent } : m
-  );
-  const open = updated.filter((m) => m.statusType !== 'completed');
-  const active = open.find((m) => m.statusType === 'active') ?? open[0];
-  const upcoming = open.find((m) => m !== active);
-  return updated.map((m) => {
-    if (m.statusType === 'completed') return { ...m, statusBadge: STATUS_BADGE.completed };
-    const statusType: MilestoneStatus = m === active ? 'active' : m === upcoming ? 'next' : 'scheduled';
-    return { ...m, statusType, statusBadge: STATUS_BADGE[statusType] };
-  });
-};
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
@@ -76,13 +48,14 @@ export default function App() {
   const [incidents, setIncidents] = useState<TacticalIncident[]>(INITIAL_INCIDENTS);
   const [units, setUnits] = useState<TacticalUnit[]>(INITIAL_UNITS);
   const [agencies] = useState(INITIAL_AGENCIES);
-  const [logs, setLogs] = useState<BlackBoxEntry[]>(INITIAL_BLACKBOX_LOGS);
+  const [logs, setLogs] = useState<LogEntry[]>(INITIAL_LOGS);
 
   // Modals state
-  const [selectedMilestone, setSelectedMilestone] = useState<Milestone | null>(null);
+  // Store the id, not a copy, so the modal always shows the current row
+  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
+  const selectedMilestone = milestones.find((m) => m.id === selectedMilestoneId) ?? null;
   const [isLprModalOpen, setIsLprModalOpen] = useState(false);
   const [isSimModalOpen, setIsSimModalOpen] = useState(false);
-  const [isBlackBoxOpen, setIsBlackBoxOpen] = useState(false);
 
   // Radio Transmission Live Toast — one timer, so a new message never gets cut short by an older one
   const [toast, setToast] = useState<{ text: string; ms: number; key: number } | null>(null);
@@ -95,16 +68,13 @@ export default function App() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Live countdowns
-  const [activePhaseSec, setActivePhaseSec] = useState(18 * 60 + 39);
-  const [nextPhaseSec, setNextPhaseSec] = useState(34 * 60 + 7);
+  // Target clocks run on the browser clock: countdowns are derived from the schedule each tick
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const interval = setInterval(() => {
-      setActivePhaseSec((s) => Math.max(0, s - 1));
-      setNextPhaseSec((s) => Math.max(0, s - 1));
-    }, 1000);
+    const interval = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(interval);
   }, []);
+  const { activeRemainingSec, nextCountdownSec } = phaseCountdowns(milestones, now);
 
   // Live telemetry: moving units drift on the map and refresh their last contact
   useEffect(() => {
@@ -165,13 +135,12 @@ export default function App() {
   const logSeq = useRef(500);
 
   const appendLog = useCallback((severity: LogSeverity, source: string, action: string) => {
-    const entry: BlackBoxEntry = {
+    const entry: LogEntry = {
       id: `LOG-${String(++logSeq.current).padStart(4, '0')}`,
       timestamp: clockTime(),
       severity,
       source,
       action,
-      hash: shortHash(),
     };
     setLogs((prev) => [entry, ...prev]);
   }, []);
@@ -184,22 +153,55 @@ export default function App() {
     showToast(`קריאה ישירה בקשר מוצפן אל כוח ${callSign} - בדיקת קליטה ומיקום`, 3500);
   };
 
+  const MS_SOURCE = 'חפ"ק אג"מ מרחב יהודה';
+  const msSeq = useRef(100);
+
   const handleUpdateMilestoneStatus = (id: string, newStatus: MilestoneStatus) => {
     const target = milestones.find((m) => m.id === id);
     if (!target || target.statusType === newStatus) return;
+    // Completing the running phase promotes the next one; the target clocks follow automatically
+    setMilestones(normalizeMilestones(milestones.map((m) => (m.id === id ? { ...m, statusType: newStatus } : m))));
+    appendLog('NOMINAL', MS_SOURCE, `אבן דרך ${target.code} "${target.title}": ${STATUS_BADGE[newStatus]}`);
+  };
 
-    const next = advanceMilestones(milestones, id, newStatus);
-    setMilestones(next);
-    appendLog('NOMINAL', 'חפ"ק אג"מ מרחב יהודה', `אבן דרך ${target.code} "${target.title}": ${STATUS_BADGE[newStatus]}`);
-
-    // Completing the running phase starts the next one — restart the target clocks accordingly
-    if (target.statusType === 'active' && newStatus === 'completed') {
-      const hasActive = next.some((m) => m.statusType === 'active');
-      const hasNext = next.some((m) => m.statusType === 'next');
-      const newActive = hasActive ? Math.max(nextPhaseSec, PHASE_MIN_SEC) : 0;
-      setActivePhaseSec(newActive);
-      setNextPhaseSec(hasNext ? newActive + PHASE_GAP_SEC : 0);
+  const handleEditMilestone = (id: string, patch: MilestonePatch, isNew: boolean) => {
+    const target = milestones.find((m) => m.id === id);
+    if (!target) return;
+    const changed = (Object.keys(patch) as (keyof MilestonePatch)[]).some((k) => patch[k] !== target[k]);
+    if (changed) setMilestones(normalizeMilestones(milestones.map((m) => (m.id === id ? { ...m, ...patch } : m))));
+    if (isNew || changed) {
+      const label = `${patch.code ?? target.code} "${patch.title ?? target.title}"`;
+      appendLog('NOMINAL', MS_SOURCE, isNew ? `הוספת אבן דרך ${label} בשעה ${patch.scheduledTime ?? target.scheduledTime}` : `עריכת אבן דרך ${label}`);
     }
+  };
+
+  const handleAddMilestone = () => {
+    const id = `MS-${++msSeq.current}`;
+    // New row starts when the last row ends
+    const last = milestones[milestones.length - 1];
+    const start = last
+      ? new Date(todayAt(last.scheduledTime, now).getTime() + last.durationMin * 60_000)
+      : new Date(Math.ceil(now.getTime() / (5 * 60_000)) * 5 * 60_000);
+    const row: Milestone = {
+      id,
+      code: `M-${milestones.length + 1}`,
+      title: 'משימה חדשה',
+      scheduledTime: hhmm(start),
+      durationMin: 30,
+      owner: '',
+      description: '',
+      statusType: 'scheduled',
+      statusBadge: STATUS_BADGE.scheduled,
+      tasks: [],
+    };
+    setMilestones((prev) => normalizeMilestones([...prev, row]));
+    return id;
+  };
+
+  const handleDeleteMilestone = (id: string, discardDraft = false) => {
+    const target = milestones.find((m) => m.id === id);
+    setMilestones((prev) => normalizeMilestones(prev.filter((m) => m.id !== id)));
+    if (target && !discardDraft) appendLog('WARNING', MS_SOURCE, `מחיקת אבן דרך ${target.code} "${target.title}"`);
   };
 
   const handleAdvanceMilestone = (id: string) => {
@@ -262,18 +264,21 @@ export default function App() {
                 onToggleFullscreen={toggleFullscreen}
                 isFullscreen={isFullscreen}
                 onOpenSimModal={() => setIsSimModalOpen(true)}
-                onOpenBlackBoxLogs={() => setIsBlackBoxOpen(true)}
                 audioEnabled={audioEnabled}
-                activePhaseRemaining={formatDuration(activePhaseSec)}
-                nextPhaseCountdown={formatDuration(nextPhaseSec)}
+                activePhaseRemainingSec={activeRemainingSec}
+                nextPhaseCountdownSec={nextCountdownSec}
               />
             </div>
             {/* Milestones & Battle Tasks Timeline */}
             <div className="min-w-0 flex-1">
               <MilestonesTimeline
                 milestones={milestones}
-                onSelectMilestone={setSelectedMilestone}
+                now={now}
+                onSelectMilestone={(m) => setSelectedMilestoneId(m.id)}
                 onAdvanceMilestone={handleAdvanceMilestone}
+                onUpdateMilestone={handleEditMilestone}
+                onAddMilestone={handleAddMilestone}
+                onDeleteMilestone={handleDeleteMilestone}
                 audioEnabled={audioEnabled}
               />
             </div>
@@ -368,7 +373,7 @@ export default function App() {
       {selectedMilestone && (
         <MilestoneModal
           milestone={selectedMilestone}
-          onClose={() => setSelectedMilestone(null)}
+          onClose={() => setSelectedMilestoneId(null)}
           onUpdateStatus={handleUpdateMilestoneStatus}
           audioEnabled={audioEnabled}
         />
@@ -383,8 +388,6 @@ export default function App() {
           audioEnabled={audioEnabled}
         />
       )}
-
-      {isBlackBoxOpen && <BlackBoxModal logs={logs} onClose={() => setIsBlackBoxOpen(false)} />}
     </div>
   );
 }

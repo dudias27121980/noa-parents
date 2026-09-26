@@ -1,12 +1,26 @@
-import { CheckCircle2, ChevronLeft, CircleDot, Clock3, Flag } from 'lucide-react';
+import { FormEvent, KeyboardEvent, useState } from 'react';
+import { CheckCircle2, CircleDot, Clock3, Flag, Info, Plus, Save, Trash2, X } from 'lucide-react';
 import { Milestone, MilestoneStatus } from '../types/tactical';
 import { Panel } from './ui';
 import { playClick } from '../utils/audio';
+import { endTime, milestoneProgress } from '../utils/schedule';
+import { parseHHMM } from '../utils/time';
+
+export type MilestonePatch = Partial<
+  Pick<Milestone, 'code' | 'title' | 'scheduledTime' | 'durationMin' | 'owner' | 'description'>
+>;
 
 interface Props {
   milestones: Milestone[];
+  /** Browser clock, ticking from App */
+  now: Date;
   onSelectMilestone: (m: Milestone) => void;
   onAdvanceMilestone: (id: string) => void;
+  onUpdateMilestone: (id: string, patch: MilestonePatch, isNew: boolean) => void;
+  /** Appends a row and returns its id so it opens straight in edit mode */
+  onAddMilestone: () => string;
+  /** discardDraft: an unsaved '+' row being thrown away (not a real deletion) */
+  onDeleteMilestone: (id: string, discardDraft?: boolean) => void;
   audioEnabled: boolean;
 }
 
@@ -17,8 +31,28 @@ export const STATUS_STYLE: Record<MilestoneStatus, { dot: string; badge: string;
   scheduled: { dot: 'bg-slate-600 border-slate-400', badge: 'bg-slate-600/30 text-slate-300', bar: 'bg-slate-500' },
 };
 
-export function MilestonesTimeline({ milestones, onSelectMilestone, onAdvanceMilestone, audioEnabled }: Props) {
+export function MilestonesTimeline({
+  milestones,
+  now,
+  onSelectMilestone,
+  onAdvanceMilestone,
+  onUpdateMilestone,
+  onAddMilestone,
+  onDeleteMilestone,
+  audioEnabled,
+}: Props) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  // A row created by "+" that was never saved is removed again on cancel
+  const [newRowId, setNewRowId] = useState<string | null>(null);
   const done = milestones.filter((m) => m.statusType === 'completed').length;
+
+  const click = () => audioEnabled && playClick();
+
+  const closeEditor = (saved: boolean) => {
+    if (!saved && editingId && editingId === newRowId) onDeleteMilestone(editingId, true);
+    setEditingId(null);
+    setNewRowId(null);
+  };
 
   return (
     <Panel
@@ -26,6 +60,7 @@ export function MilestonesTimeline({ milestones, onSelectMilestone, onAdvanceMil
       icon={<Flag size={16} />}
       actions={
         <span className="text-xs text-slate-400">
+          <span className="hidden sm:inline">לחיצה כפולה על שורה לעריכה · </span>
           <span className="font-mono text-emerald-300">{done}</span>/{milestones.length} הושלמו
         </span>
       }
@@ -33,58 +68,248 @@ export function MilestonesTimeline({ milestones, onSelectMilestone, onAdvanceMil
       <ol className="relative flex flex-col gap-3 border-s-2 border-cyan-900/60 ps-5">
         {milestones.map((m) => {
           const s = STATUS_STYLE[m.statusType];
+          const progress = milestoneProgress(m, now);
           return (
             <li key={m.id} className="relative">
               <span className={`absolute -start-[27px] top-3 h-3.5 w-3.5 rounded-full border-2 ${s.dot}`} />
-              <div
-                className={`rounded border p-3 transition ${
-                  m.statusType === 'active' ? 'border-cyan-500/60 bg-cyan-500/5' : 'border-slate-800 bg-black/20'
-                }`}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <button
-                    onClick={() => {
-                      if (audioEnabled) playClick();
-                      onSelectMilestone(m);
-                    }}
-                    className="flex items-center gap-2 text-start hover:text-cyan-200"
-                  >
-                    <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-300" dir="ltr">
-                      {m.code}
-                    </span>
-                    <span className="text-sm font-bold text-slate-100">{m.title}</span>
-                    <ChevronLeft size={14} className="text-slate-500" />
-                  </button>
-                  <span className={`rounded px-2 py-0.5 text-[11px] font-semibold ${s.badge}`}>{m.statusBadge}</span>
-                </div>
-
-                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400">
-                  <span className="flex items-center gap-1">
-                    <Clock3 size={12} /> <span className="font-mono">{m.scheduledTime}</span>
-                  </span>
-                  <span>אחראי: {m.owner}</span>
-                </div>
-
-                <div className="mt-2 flex items-center gap-3">
-                  <div className="h-1.5 flex-1 overflow-hidden rounded bg-slate-800">
-                    <div className={`h-full ${s.bar} transition-all`} style={{ width: `${m.progressPercent}%` }} />
+              {editingId === m.id ? (
+                <MilestoneEditor
+                  milestone={m}
+                  isNew={m.id === newRowId}
+                  onSave={(patch) => {
+                    click();
+                    onUpdateMilestone(m.id, patch, m.id === newRowId);
+                    closeEditor(true);
+                  }}
+                  onCancel={() => closeEditor(false)}
+                  onDelete={() => {
+                    click();
+                    onDeleteMilestone(m.id);
+                    setEditingId(null);
+                    setNewRowId(null);
+                  }}
+                />
+              ) : (
+                <div
+                  onDoubleClick={() => {
+                    if (editingId) return; // one editor at a time
+                    click();
+                    setEditingId(m.id);
+                  }}
+                  title="לחיצה כפולה לעריכה"
+                  className={`cursor-default select-none rounded border p-3 transition hover:border-cyan-700/70 ${
+                    m.statusType === 'active' ? 'border-cyan-500/60 bg-cyan-500/5' : 'border-slate-800 bg-black/20'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-slate-300" dir="ltr">
+                        {m.code}
+                      </span>
+                      <span className="text-sm font-bold text-slate-100">{m.title}</span>
+                      <button
+                        onClick={() => {
+                          click();
+                          onSelectMilestone(m);
+                        }}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                        className="rounded p-0.5 text-slate-500 hover:bg-white/10 hover:text-cyan-200"
+                        aria-label="פרטים"
+                        title="פרטים ומשימות"
+                      >
+                        <Info size={14} />
+                      </button>
+                    </div>
+                    <span className={`rounded px-2 py-0.5 text-[11px] font-semibold ${s.badge}`}>{m.statusBadge}</span>
                   </div>
-                  <span className="w-9 font-mono text-[11px] text-slate-300">{m.progressPercent}%</span>
-                  {m.statusType === 'active' && (
-                    <button
-                      onClick={() => onAdvanceMilestone(m.id)}
-                      className="flex items-center gap-1 rounded border border-emerald-500/60 bg-emerald-500/10 px-2 py-1 text-[11px] font-bold text-emerald-200 hover:bg-emerald-500/20"
-                    >
-                      <CheckCircle2 size={12} /> סמן כהושלם
-                    </button>
-                  )}
-                  {m.statusType === 'next' && <CircleDot size={14} className="text-amber-300" />}
+
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400">
+                    <span className="flex items-center gap-1">
+                      <Clock3 size={12} />
+                      <span className="font-mono" dir="ltr">
+                        {m.scheduledTime}–{endTime(m, now)}
+                      </span>
+                      <span>({m.durationMin} דק׳)</span>
+                    </span>
+                    <span>אחראי: {m.owner}</span>
+                  </div>
+
+                  <div className="mt-2 flex items-center gap-3">
+                    <div className="h-1.5 flex-1 overflow-hidden rounded bg-slate-800">
+                      <div className={`h-full ${s.bar} transition-all`} style={{ width: `${progress}%` }} />
+                    </div>
+                    <span className="w-9 font-mono text-[11px] text-slate-300">{progress}%</span>
+                    {m.statusType === 'active' && (
+                      <button
+                        onClick={() => onAdvanceMilestone(m.id)}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-1 rounded border border-emerald-500/60 bg-emerald-500/10 px-2 py-1 text-[11px] font-bold text-emerald-200 hover:bg-emerald-500/20"
+                      >
+                        <CheckCircle2 size={12} /> סמן כהושלם
+                      </button>
+                    )}
+                    {m.statusType === 'next' && <CircleDot size={14} className="text-amber-300" />}
+                  </div>
                 </div>
-              </div>
+              )}
             </li>
           );
         })}
+
+        {/* Last row: add a new schedule line */}
+        <li className="relative">
+          <span className="absolute -start-[27px] top-3 h-3.5 w-3.5 rounded-full border-2 border-dashed border-slate-500 bg-[#0b1426]" />
+          <button
+            onClick={() => {
+              if (editingId) return;
+              click();
+              const id = onAddMilestone();
+              setNewRowId(id);
+              setEditingId(id);
+            }}
+            disabled={!!editingId}
+            className="flex w-full items-center justify-center gap-2 rounded border-2 border-dashed border-cyan-800/70 p-3 text-sm font-bold text-cyan-300/80 transition hover:border-cyan-500 hover:bg-cyan-500/5 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Plus size={18} /> הוספת שורה ללו״ז
+          </button>
+        </li>
       </ol>
     </Panel>
+  );
+}
+
+function MilestoneEditor({
+  milestone,
+  isNew,
+  onSave,
+  onCancel,
+  onDelete,
+}: {
+  milestone: Milestone;
+  isNew: boolean;
+  onSave: (patch: MilestonePatch) => void;
+  onCancel: () => void;
+  onDelete: () => void;
+}) {
+  const [code, setCode] = useState(milestone.code);
+  const [title, setTitle] = useState(milestone.title);
+  const [time, setTime] = useState(milestone.scheduledTime);
+  const [duration, setDuration] = useState(String(milestone.durationMin));
+  const [owner, setOwner] = useState(milestone.owner);
+  const [description, setDescription] = useState(milestone.description);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const durationNum = Number(duration);
+  const errors = {
+    title: !title.trim(),
+    time: parseHHMM(time) === null,
+    duration: !Number.isInteger(durationNum) || durationNum < 1 || durationNum > 24 * 60,
+  };
+  const invalid = errors.title || errors.time || errors.duration;
+
+  const submit = (e?: FormEvent) => {
+    e?.preventDefault();
+    if (invalid) return;
+    onSave({
+      code: code.trim() || milestone.code,
+      title: title.trim(),
+      scheduledTime: time,
+      durationMin: durationNum,
+      owner: owner.trim(),
+      description: description.trim(),
+    });
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      onCancel();
+    }
+  };
+
+  const input = (bad = false) =>
+    `w-full rounded border bg-black/40 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-cyan-400 ${
+      bad ? 'border-red-500' : 'border-slate-700'
+    }`;
+  const label = 'flex flex-col gap-1 text-[11px] text-slate-400';
+
+  return (
+    <form
+      onSubmit={submit}
+      onKeyDown={onKeyDown}
+      className="grid grid-cols-2 gap-2 rounded border-2 border-cyan-500/70 bg-cyan-500/5 p-3 sm:grid-cols-6"
+    >
+      <label className={`${label} sm:col-span-1`}>
+        קוד
+        <input className={input()} value={code} onChange={(e) => setCode(e.target.value)} dir="ltr" />
+      </label>
+      <label className={`${label} sm:col-span-3`}>
+        כותרת *
+        <input className={input(errors.title)} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+      </label>
+      <label className={`${label} sm:col-span-1`}>
+        שעת התחלה *
+        <input type="time" className={input(errors.time)} value={time} onChange={(e) => setTime(e.target.value)} dir="ltr" />
+      </label>
+      <label className={`${label} sm:col-span-1`}>
+        משך (דק׳) *
+        <input
+          type="number"
+          min={1}
+          max={1440}
+          className={input(errors.duration)}
+          value={duration}
+          onChange={(e) => setDuration(e.target.value)}
+          dir="ltr"
+        />
+      </label>
+      <label className={`${label} col-span-2 sm:col-span-2`}>
+        אחראי
+        <input className={input()} value={owner} onChange={(e) => setOwner(e.target.value)} />
+      </label>
+      <label className={`${label} col-span-2 sm:col-span-4`}>
+        תיאור
+        <input className={input()} value={description} onChange={(e) => setDescription(e.target.value)} />
+      </label>
+
+      <div className="col-span-2 flex flex-wrap items-center justify-between gap-2 pt-1 sm:col-span-6">
+        {confirmDelete ? (
+          <span className="flex items-center gap-2 text-xs text-red-300">
+            למחוק את השורה?
+            <button type="button" onClick={onDelete} className="rounded bg-red-600 px-2 py-1 font-bold text-white hover:bg-red-500">
+              מחק
+            </button>
+            <button type="button" onClick={() => setConfirmDelete(false)} className="text-slate-400 hover:text-slate-200">
+              לא
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => (isNew ? onCancel() : setConfirmDelete(true))}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-red-300 hover:bg-red-500/10"
+          >
+            <Trash2 size={13} /> מחיקה
+          </button>
+        )}
+        <div className="flex items-center gap-2">
+          <span className="hidden text-[10px] text-slate-500 sm:inline">Enter לשמירה · Esc לביטול</span>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex items-center gap-1 rounded px-3 py-1.5 text-xs text-slate-300 hover:bg-white/5"
+          >
+            <X size={13} /> ביטול
+          </button>
+          <button
+            type="submit"
+            disabled={invalid}
+            className="flex items-center gap-1 rounded bg-cyan-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Save size={13} /> שמירה
+          </button>
+        </div>
+      </div>
+    </form>
   );
 }

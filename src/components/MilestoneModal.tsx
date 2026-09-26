@@ -3,6 +3,7 @@ import { Milestone, MilestoneStatus } from '../types/tactical';
 import { ModalShell } from './ui';
 import { STATUS_STYLE } from './MilestonesTimeline';
 import { playClick, playCompleteChime } from '../utils/audio';
+import { endTime, milestoneProgress } from '../utils/schedule';
 
 interface Props {
   milestone: Milestone;
@@ -13,6 +14,8 @@ interface Props {
 
 export function MilestoneModal({ milestone, onClose, onUpdateStatus, audioEnabled }: Props) {
   const s = STATUS_STYLE[milestone.statusType];
+  const now = new Date(); // parent re-renders every second
+  const progress = milestoneProgress(milestone, now);
 
   const update = (status: MilestoneStatus) => {
     if (audioEnabled) (status === 'completed' ? playCompleteChime : playClick)();
@@ -27,7 +30,10 @@ export function MilestoneModal({ milestone, onClose, onUpdateStatus, audioEnable
           <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono" dir="ltr">{milestone.code}</span>
           <span className={`rounded px-2 py-0.5 font-semibold ${s.badge}`}>{milestone.statusBadge}</span>
           <span className="flex items-center gap-1 text-slate-400">
-            <Clock3 size={12} /> <span className="font-mono">{milestone.scheduledTime}</span>
+            <Clock3 size={12} />
+            <span className="font-mono" dir="ltr">
+              {milestone.scheduledTime}–{endTime(milestone, now)}
+            </span>
           </span>
           <span className="text-slate-400">אחראי: {milestone.owner}</span>
         </div>
@@ -48,9 +54,9 @@ export function MilestoneModal({ milestone, onClose, onUpdateStatus, audioEnable
         </div>
         <div className="flex items-center gap-3">
           <div className="h-2 flex-1 overflow-hidden rounded bg-slate-800">
-            <div className={`h-full ${s.bar}`} style={{ width: `${milestone.progressPercent}%` }} />
+            <div className={`h-full ${s.bar}`} style={{ width: `${progress}%` }} />
           </div>
-          <span className="font-mono text-xs">{milestone.progressPercent}%</span>
+          <span className="font-mono text-xs">{progress}%</span>
         </div>
         {milestone.statusType !== 'completed' && (
           <div className="flex justify-end gap-2 border-t border-white/10 pt-3">
