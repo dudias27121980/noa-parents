@@ -7,7 +7,7 @@ const tokenOf = (r: ReturnType<ReturnType<typeof createAuth>['login']>) => (r.ok
 describe('station tokens', () => {
   it('a valid token names its station', () => {
     const auth = createAuth({ accessCode: 'c', secret: 's1' });
-    expect(auth.verify(tokenOf(auth.login('עמדה א', 'c', 'ip')))).toBe('עמדה א');
+    expect(auth.verify(tokenOf(auth.login('עמדה א', 'c', 'ip')))).toEqual({ station: 'עמדה א', role: 'station' });
   });
 
   it('rejects a well-formed token whose station was swapped (signature no longer matches)', () => {
@@ -29,7 +29,7 @@ describe('station tokens', () => {
     const auth = createAuth({ accessCode: 'c', secret: 's1', now: () => t });
     const token = tokenOf(auth.login('עמדה א', 'c', 'ip'));
     t = 11.9 * 3600_000;
-    expect(auth.verify(token)).toBe('עמדה א');
+    expect(auth.verify(token)).toEqual({ station: 'עמדה א', role: 'station' });
     t = 12.1 * 3600_000;
     expect(auth.verify(token)).toBeNull();
   });
@@ -42,5 +42,25 @@ describe('station tokens', () => {
     expect(auth.login('x', 'c', 'ip-2').ok).toBe(true);
     t = 61_000;
     expect(auth.login('x', 'c', 'ip-1').ok).toBe(true);
+  });
+
+  it('a wall display gets a read-only identity that lasts 30 days', () => {
+    let t = 0;
+    const auth = createAuth({ accessCode: 'c', secret: 's1', now: () => t });
+    const r = auth.login('מסך קיר', 'c', 'ip', 'display');
+    expect(r.ok && r.role).toBe('display');
+    const token = tokenOf(r);
+    t = 29 * 86_400_000;
+    expect(auth.verify(token)).toEqual({ station: 'מסך קיר', role: 'display' });
+    t = 31 * 86_400_000;
+    expect(auth.verify(token)).toBeNull();
+  });
+
+  it('the role cannot be upgraded by editing the token', () => {
+    const auth = createAuth({ accessCode: 'c', secret: 's1' });
+    const [payload, sig] = tokenOf(auth.login('מסך קיר', 'c', 'ip', 'display')).split('.');
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString());
+    const forged = Buffer.from(JSON.stringify({ ...claims, r: 'station' })).toString('base64url');
+    expect(auth.verify(`${forged}.${sig}`)).toBeNull();
   });
 });

@@ -69,6 +69,8 @@ function Dashboard({
   const { milestones, incidents, units, agencies, lprHits, routes, scenarios, logs, alertLevel, mainFrequency, shift, hqName } =
     state;
   const online = view.status === 'online';
+  // Wall display: the whole working area is view-only (the server refuses changes too)
+  const readOnly = view.readOnly;
 
   // Radio Transmission Live Toast — one timer, so a new message never gets cut short by an older one
   const [toast, setToast] = useState<{ text: string; ms: number; key: number; critical?: boolean } | null>(null);
@@ -353,6 +355,7 @@ function Dashboard({
         stations={view.stations}
         connection={view.status}
         onLogout={onLogout}
+        readOnly={readOnly}
       />
 
       {!online && (
@@ -364,7 +367,8 @@ function Dashboard({
 
       {/* Main Viewport Container — read-only while disconnected, so nothing is edited against stale data */}
       <main
-        inert={!online}
+        inert={!online || readOnly}
+        data-readonly={readOnly || undefined}
         className={`flex-1 w-full max-w-[1720px] mx-auto p-3 sm:p-4 flex flex-col gap-3 transition-opacity ${online ? '' : 'opacity-50'}`}
       >
         <HudCenter

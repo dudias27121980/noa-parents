@@ -49,6 +49,7 @@ export function HudCenter({ audioEnabled, onSimulateTransmission, mainFrequency,
           }}
         />
         <button
+          data-edit-control
           onClick={() => {
             if (audioEnabled) playRadioChirp();
             onSimulateTransmission();

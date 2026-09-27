@@ -140,14 +140,15 @@ export function createServer(opts: ServerOptions) {
       if (path === '/api/health') return json(res, 200, { ok: true, stations: hub.stations() });
       if (path === '/api/login') {
         if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' });
-        let body: { station?: unknown; code?: unknown };
+        let body: { station?: unknown; code?: unknown; display?: unknown };
         try {
           body = JSON.parse(await readBody(req));
         } catch {
           return json(res, 400, { error: 'בקשה לא תקינה' });
         }
-        const result = auth.login(body.station, body.code, clientAddress(req, opts.trustProxy ?? 0));
-        if (result.ok) return json(res, 200, { token: result.token, station: result.station });
+        const role = body.display === true ? 'display' : 'station';
+        const result = auth.login(body.station, body.code, clientAddress(req, opts.trustProxy ?? 0), role);
+        if (result.ok) return json(res, 200, { token: result.token, station: result.station, display: result.role === 'display' });
         if (result.retryAfterSec) return json(res, 429, { error: result.error }, { 'Retry-After': String(result.retryAfterSec) });
         return json(res, 401, { error: result.error });
       }
@@ -172,15 +173,16 @@ export function createServer(opts: ServerOptions) {
       socket.destroy();
       return;
     }
-    const station = auth.verify(url.searchParams.get('token'));
+    const identity = auth.verify(url.searchParams.get('token'));
     wss.handleUpgrade(req, socket, head, (ws) => {
-      if (!station) {
+      if (!identity) {
         // Upgrade first, then close with a code the client understands ("log in again")
         ws.close(CLOSE_UNAUTHORIZED, 'unauthorized');
         return;
       }
       const conn: Conn = {
-        station,
+        station: identity.station,
+        readOnly: identity.role === 'display',
         send: (msg) => {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
         },

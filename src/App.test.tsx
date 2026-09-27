@@ -23,8 +23,8 @@ afterEach(() => {
 });
 
 /** A station (browser) logged in to the shared server, rendered in its own container */
-async function openStation(name = 'עמדה 1') {
-  const store = new SharedStore(server.connect(name));
+async function openStation(name = 'עמדה 1', { display = false } = {}) {
+  const store = new SharedStore(server.connect(name, { readOnly: display }));
   stores.push(store);
   store.start();
   const user = userEvent.setup();
@@ -424,5 +424,39 @@ describe('everything is editable', () => {
     await a.user.clear(input);
     await a.user.type(input, 'חפ"ק מרחב בנימין{Enter}');
     await waitFor(() => expect(b.q.getByTitle('לחיצה כפולה לשינוי שם')).toHaveTextContent('חפ"ק מרחב בנימין'));
+  });
+});
+
+describe('wall display', () => {
+  it('shows the live picture read-only, and is listed as a display', async () => {
+    const a = await openStation('עמדה א');
+    const wall = await openStation('מסך קיר', { display: true });
+
+    expect(wall.q.getByText('עמדת תצוגה · קריאה בלבד')).toBeInTheDocument();
+    expect(wall.q.getByRole('main')).toHaveAttribute('inert');
+    expect(wall.q.getByLabelText('רמת כוננות')).toBeDisabled();
+    expect(wall.q.queryByTitle('לחיצה כפולה לשינוי שם')).not.toBeInTheDocument();
+    // Navigation between screens still works on the wall
+    await wall.goTo('כוחות');
+    expect(wall.q.getByText('סד״כ כוחות בגזרה')).toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(a.q.getByLabelText(/עמדות מחוברות/).getAttribute('title')).toContain('מסך קיר (תצוגה)')
+    );
+
+    // Changes made at a working station appear on the wall
+    await a.goTo('כוחות');
+    await a.user.dblClick(a.q.getByText('סיור 21', { exact: true }));
+    const callSign = a.q.getByLabelText(/אות קריאה/);
+    await a.user.clear(callSign);
+    await a.user.type(callSign, 'סיור 77{Enter}');
+    expect(await wall.q.findByText('סיור 77', { exact: true })).toBeInTheDocument();
+  });
+
+  it('the server refuses a change even if the display page is tampered with', async () => {
+    const wall = await openStation('מסך קיר', { display: true });
+    const r = await wall.store.dispatch({ type: 'frequency.set', frequency: '9999' });
+    expect(r).toEqual({ ok: false, error: 'עמדת תצוגה - קריאה בלבד' });
+    expect(server.core.getState().mainFrequency).toBe('1480');
   });
 });

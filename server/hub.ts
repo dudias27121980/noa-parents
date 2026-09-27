@@ -4,6 +4,8 @@ import { Core } from './core';
 /** One open station connection (a WebSocket in production, an in-memory pipe in tests) */
 export interface Conn {
   station: string;
+  /** Wall display: receives everything, may not change anything */
+  readOnly?: boolean;
   send(msg: ServerMessage): void;
 }
 
@@ -15,9 +17,15 @@ export function createHub(core: Core) {
   const conns = new Set<Conn>();
 
   const presence = (): StationInfo[] => {
-    const counts = new Map<string, number>();
-    conns.forEach((c) => counts.set(c.station, (counts.get(c.station) ?? 0) + 1));
-    return [...counts].map(([name, connections]) => ({ name, connections })).sort((a, b) => a.name.localeCompare(b.name, 'he'));
+    const counts = new Map<string, StationInfo>();
+    conns.forEach((c) => {
+      const display = !!c.readOnly;
+      const key = `${display ? 'd' : 's'}:${c.station}`;
+      const entry = counts.get(key) ?? { name: c.station, display, connections: 0 };
+      entry.connections++;
+      counts.set(key, entry);
+    });
+    return [...counts.values()].sort((a, b) => Number(a.display) - Number(b.display) || a.name.localeCompare(b.name, 'he'));
   };
 
   const broadcast = (msg: ServerMessage, filter: (c: Conn) => boolean = () => true) =>
@@ -25,7 +33,13 @@ export function createHub(core: Core) {
       if (filter(c)) c.send(msg);
     });
 
-  const snapshotFor = (c: Conn): ServerMessage => ({ t: 'snapshot', state: core.getState(), stations: presence(), you: c.station });
+  const snapshotFor = (c: Conn): ServerMessage => ({
+    t: 'snapshot',
+    state: core.getState(),
+    stations: presence(),
+    you: c.station,
+    readOnly: !!c.readOnly,
+  });
 
   return {
     join(conn: Conn) {
@@ -45,6 +59,10 @@ export function createHub(core: Core) {
       const { t, reqId, action } = msg as { t?: unknown; reqId?: unknown; action?: unknown };
       if (t !== 'action' || typeof reqId !== 'number') return;
 
+      if (conn.readOnly) {
+        conn.send({ t: 'result', reqId, result: { ok: false, error: 'עמדת תצוגה - קריאה בלבד' } });
+        return;
+      }
       const outcome = core.dispatch(conn.station, action as Action);
       // Changes go out before the result, so the sender's state is current when its request resolves
       if (outcome.reset) conns.forEach((c) => c.send(snapshotFor(c)));

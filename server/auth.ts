@@ -1,12 +1,21 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // one shift
+// A wall display is read-only and left running unattended, so it stays logged in much longer
+const DISPLAY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** 'station' works the picture; 'display' only shows it (wall screen) — enforced by the server */
+export type Role = 'station' | 'display';
+export interface Identity {
+  station: string;
+  role: Role;
+}
 const MAX_FAILURES = 5;
 const FAILURE_WINDOW_MS = 5 * 60 * 1000;
 const LOCKOUT_MS = 60 * 1000;
 
 export type LoginResult =
-  | { ok: true; token: string; station: string }
+  | { ok: true; token: string; station: string; role: Role }
   | { ok: false; error: string; retryAfterSec?: number };
 
 const b64url = (buf: Buffer | string) => Buffer.from(buf).toString('base64url');
@@ -33,7 +42,7 @@ export function createAuth({
   const codeMatches = (code: string) => timingSafeEqual(sha256(code), sha256(accessCode));
 
   return {
-    login(stationRaw: unknown, code: unknown, client: string): LoginResult {
+    login(stationRaw: unknown, code: unknown, client: string, role: Role = 'station'): LoginResult {
       const t = now();
       const record = failures.get(client);
       if (record && record.lockedUntil > t) {
@@ -56,12 +65,13 @@ export function createAuth({
       }
 
       failures.delete(client);
-      const payload = b64url(JSON.stringify({ s: station, exp: t + TOKEN_TTL_MS }));
-      return { ok: true, token: `${payload}.${sign(payload)}`, station };
+      const ttl = role === 'display' ? DISPLAY_TTL_MS : TOKEN_TTL_MS;
+      const payload = b64url(JSON.stringify({ s: station, r: role, exp: t + ttl }));
+      return { ok: true, token: `${payload}.${sign(payload)}`, station, role };
     },
 
-    /** Station name for a valid, unexpired token; null otherwise */
-    verify(token: unknown): string | null {
+    /** Who a valid, unexpired token belongs to; null otherwise */
+    verify(token: unknown): Identity | null {
       if (typeof token !== 'string') return null;
       const [payload, sig] = token.split('.');
       if (!payload || !sig) return null;
@@ -69,8 +79,10 @@ export function createAuth({
       const given = Buffer.from(sig);
       if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
       try {
-        const { s, exp } = JSON.parse(Buffer.from(payload, 'base64url').toString()) as { s: string; exp: number };
-        return typeof s === 'string' && typeof exp === 'number' && exp > now() ? s : null;
+        const { s, r, exp } = JSON.parse(Buffer.from(payload, 'base64url').toString()) as { s: unknown; r?: unknown; exp: unknown };
+        if (typeof s !== 'string' || typeof exp !== 'number' || exp <= now()) return null;
+        // Tokens issued before roles existed are regular stations
+        return { station: s, role: r === 'display' ? 'display' : 'station' };
       } catch {
         return null;
       }
