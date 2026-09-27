@@ -203,7 +203,7 @@ function Dashboard({
             value: `${connected}/${agencies.length}`,
             subLabel: problemAgency
               ? `${problemAgency.name} ${problemAgency.status === 'disconnected' ? 'מנותק' : 'בתקשורת לקויה'}`
-              : 'כל הגורמים מחוברים',
+              : 'כל הכוחות החבירים מחוברים',
             trend: '',
           };
       }

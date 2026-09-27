@@ -36,7 +36,7 @@ async function openStation(name = 'עמדה 1', { display = false } = {}) {
   const q = within(r.container);
   await q.findByText('אבני דרך ומשימות קרב');
   const goTo = (label: string) =>
-    user.click(within(q.getByRole('navigation', { name: 'ניווט ראשי' })).getByRole('button', { name: new RegExp(`^${label}`) }));
+    user.click(within(q.getByRole('navigation', { name: 'ניווט ראשי' })).getByRole('button', { name: new RegExp(`^${label}(\\s*\\d+)?$`) }));
   const card = (text: string) => q.getByText(text, { exact: true }).closest('[title="לחיצה כפולה לעריכה"]') as HTMLElement;
   return { user, q, store, goTo, card };
 }
@@ -185,7 +185,7 @@ describe('forces, incidents and agencies', () => {
 
   it('switching an agency to phone requires a valid number', async () => {
     const { user, q, goTo, card } = await openStation();
-    await goTo('גורמי חוץ');
+    await goTo('כוחות חבירים');
     await user.dblClick(q.getByText('כבאות והצלה'));
     await user.selectOptions(q.getByLabelText('אמצעי קשר'), 'phone');
     const phone = q.getByLabelText('מספר טלפון *');

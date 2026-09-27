@@ -496,8 +496,8 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
       if (next.liaison !== target.liaison) notes.push(`קישור: ${target.liaison || '—'} ← ${next.liaison || '—'}`);
       tx.log(
         next.status === 'disconnected' && statusChanged ? 'WARNING' : 'NOMINAL',
-        'תיאום גורמי חוץ',
-        `עריכת גורם חוץ ${next.name}${notes.length ? ` (${notes.join(', ')})` : ''}`
+        'תיאום כוחות חבירים',
+        `עריכת כוח חביר ${next.name}${notes.length ? ` (${notes.join(', ')})` : ''}`
       );
     },
 
@@ -585,14 +585,14 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
       };
       if (!agency.frequency && !agency.phone) fail('נדרש תדר או מספר טלפון');
       tx.upsert('agencies', [agency]);
-      tx.log('NOMINAL', 'תיאום גורמי חוץ', `גורם חוץ חדש: ${agency.name}`);
+      tx.log('NOMINAL', 'תיאום כוחות חבירים', `כוח חביר חדש: ${agency.name}`);
       return agency.id;
     },
 
     'agency.delete'(tx, a) {
       const target = tx.state.agencies.find((ag) => ag.id === a.id) ?? fail(NOT_FOUND);
       tx.remove('agencies', [target.id]);
-      tx.log('WARNING', 'תיאום גורמי חוץ', `גורם חוץ הוסר: ${target.name}`);
+      tx.log('WARNING', 'תיאום כוחות חבירים', `כוח חביר הוסר: ${target.name}`);
     },
 
     'parking.add'(tx, a) {
