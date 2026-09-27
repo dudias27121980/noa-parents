@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Check, LogOut, Maximize2, Minimize2, Shield, Users, Volume2, VolumeX, X } from 'lucide-react';
 import { StationInfo } from '../shared/protocol';
 import { ConnectionStatus } from '../sync/store';
@@ -26,7 +26,9 @@ interface Props {
   station: string;
   stations: StationInfo[];
   connection: ConnectionStatus;
-  onLogout: () => void;
+  /** Omitted when there is no login (the offline file) */
+  onLogout?: () => void;
+  extraActions?: ReactNode;
   /** Wall display: nothing in the header can be edited */
   readOnly?: boolean;
 }
@@ -63,6 +65,7 @@ export function HeaderNav({
   stations,
   connection,
   onLogout,
+  extraActions,
   readOnly = false,
 }: Props) {
   const [now, setNow] = useState(() => new Date());
@@ -167,14 +170,17 @@ export function HeaderNav({
           >
             {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           </button>
-          <button
-            onClick={onLogout}
-            className="rounded border border-slate-700 p-1.5 text-slate-300 hover:bg-white/5"
-            aria-label="יציאה מהעמדה"
-            title="יציאה מהעמדה"
-          >
-            <LogOut size={16} />
-          </button>
+          {extraActions}
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="rounded border border-slate-700 p-1.5 text-slate-300 hover:bg-white/5"
+              aria-label="יציאה מהעמדה"
+              title="יציאה מהעמדה"
+            >
+              <LogOut size={16} />
+            </button>
+          )}
         </div>
       </div>
     </header>

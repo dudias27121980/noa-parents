@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { AlertLevel, Agency, KpiCard, MilestoneStatus, TacticalIncident, ViewScreen } from './types/tactical';
 import { INITIAL_KPIS } from './data/tacticalData';
 import { HeaderNav } from './components/HeaderNav';
@@ -40,10 +40,13 @@ const isScreen = oneOf<ViewScreen>(SCREENS.map((s) => s.id));
 
 interface Props {
   store: SharedStore;
-  onLogout: () => void;
+  /** Omitted in the offline file, which has no login */
+  onLogout?: () => void;
+  /** Extra buttons in the header (the offline file's backup export/import) */
+  headerActions?: ReactNode;
 }
 
-export default function App({ store, onLogout }: Props) {
+export default function App({ store, onLogout, headerActions }: Props) {
   const view = useSyncExternalStore(store.subscribe, store.getView);
 
   if (!view.state) {
@@ -57,7 +60,7 @@ export default function App({ store, onLogout }: Props) {
     );
   }
 
-  return <Dashboard store={store} view={view} state={view.state} onLogout={onLogout} />;
+  return <Dashboard store={store} view={view} state={view.state} onLogout={onLogout} headerActions={headerActions} />;
 }
 
 function Dashboard({
@@ -65,6 +68,7 @@ function Dashboard({
   view,
   state,
   onLogout,
+  headerActions,
 }: Props & { view: StoreView; state: SharedState }) {
   const { milestones, incidents, units, agencies, lprHits, routes, scenarios, logs, alertLevel, mainFrequency, shift, hqName } =
     state;
@@ -355,6 +359,7 @@ function Dashboard({
         stations={view.stations}
         connection={view.status}
         onLogout={onLogout}
+        extraActions={headerActions}
         readOnly={readOnly}
       />
 

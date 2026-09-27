@@ -1,0 +1,56 @@
+import { createCore } from '../../server/core';
+import { createHub, Conn } from '../../server/hub';
+import type { Db } from '../../server/dbTypes';
+import { TransportFactory } from '../sync/transport';
+
+/** The station name the offline file acts under (shown in the log next to every change) */
+export const OFFLINE_STATION = 'עמדה מקומית';
+
+/**
+ * The shared server's core and hub, running inside the page: the app talks to it through an
+ * in-process pipe instead of a WebSocket, so the dashboard works unchanged with no network at all.
+ */
+export function createLocalServer(db: Db, { tickMs = 3000 }: { tickMs?: number } = {}) {
+  const core = createCore({ db });
+  const hub = createHub(core);
+  const ticker = tickMs > 0 ? setInterval(() => hub.tick(), tickMs) : null;
+  // Messages are copied, as over the network, so the UI can never mutate the server's state
+  const copy = <T,>(v: T): T => structuredClone(v);
+
+  const transport: TransportFactory = (h) => {
+    let open = true;
+    const conn: Conn = {
+      station: OFFLINE_STATION,
+      readOnly: false,
+      send: (msg) => {
+        const m = copy(msg);
+        queueMicrotask(() => open && h.onMessage(m));
+      },
+    };
+    queueMicrotask(() => {
+      if (!open) return;
+      h.onOpen();
+      hub.join(conn);
+    });
+    return {
+      send: (msg) => {
+        const m = copy(msg);
+        queueMicrotask(() => open && hub.receive(conn, m));
+      },
+      close: () => {
+        if (!open) return;
+        open = false;
+        hub.leave(conn);
+        queueMicrotask(() => h.onClose(1000));
+      },
+    };
+  };
+
+  return {
+    core,
+    transport,
+    stop: () => {
+      if (ticker) clearInterval(ticker);
+    },
+  };
+}

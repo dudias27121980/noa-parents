@@ -1,8 +1,7 @@
 // Loaded at runtime rather than imported: the UI tests run this module inside a browser-like (jsdom)
 // bundle, which refuses static imports of Node built-ins
 const { DatabaseSync } = process.getBuiltinModule('node:sqlite') as typeof import('node:sqlite');
-import { LogEntry } from '../src/types/tactical';
-import { COLLECTIONS, CollectionName, LOG_WINDOW, SharedState, SingletonName } from '../src/shared/protocol';
+import { COLLECTIONS, CollectionName, LOG_WINDOW, SharedState } from '../src/shared/protocol';
 
 /**
  * SQLite persistence (Node's built-in node:sqlite — no native build step).
@@ -10,24 +9,8 @@ import { COLLECTIONS, CollectionName, LOG_WINDOW, SharedState, SingletonName } f
  * - singletons: alert level, main frequency, shift, server secret
  * - logs:       append-only operations log; the full history is kept (stations see the newest LOG_WINDOW)
  */
-/** Server-internal keys live next to the shared singletons */
-type SingletonKey = SingletonName | 'secret' | 'schemaVersion';
-
-export interface Db {
-  isEmpty(): boolean;
-  load(): SharedState | null;
-  upsert(collection: CollectionName, rows: { id: string }[]): void;
-  remove(collection: CollectionName, ids: string[]): void;
-  replaceCollection(collection: CollectionName, rows: { id: string }[]): void;
-  setSingleton(key: SingletonKey, value: unknown): void;
-  getSingleton<T>(key: SingletonKey): T | undefined;
-  appendLogs(entries: LogEntry[]): void;
-  clearLogs(): void;
-  /** Every log id ever written — used to continue numbering after the visible window */
-  maxLogNumber(): number;
-  transaction(fn: () => void): void;
-  close(): void;
-}
+export type { Db, SingletonKey } from './dbTypes';
+import type { Db } from './dbTypes';
 
 export function openDb(path: string): Db {
   const db = new DatabaseSync(path);

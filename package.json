@@ -8,6 +8,7 @@
     "dev:web": "vite",
     "dev:server": "node --disable-warning=ExperimentalWarning --import tsx --watch server/index.ts",
     "build": "tsc -b && vite build",
+    "build:offline": "tsc -b && vite build --config vite.offline.config.ts",
     "start": "node --disable-warning=ExperimentalWarning --import tsx server/index.ts --production",
     "typecheck": "tsc -b",
     "test": "vitest run",

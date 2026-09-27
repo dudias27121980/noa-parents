@@ -52,7 +52,7 @@ import { STATUS_BADGE, normalizeMilestones } from '../src/utils/schedule';
 import { clockTime, formatDate, isIsoDate, isoDate, parseHHMM } from '../src/utils/time';
 import { nextIdNumber } from '../src/utils/ids';
 import { changedFields } from '../src/shared/diff';
-import { Db } from './db';
+import type { Db } from './dbTypes';
 
 export interface Outcome {
   result: ActionResult;
