@@ -1,0 +1,36 @@
+name: Production smoke test
+
+# Checks the deployed site from outside: the page, the health endpoint and the live WebSocket
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/tactical-ops-dashboard-b2j2p1]
+    paths: [.github/workflows/smoke.yml]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SITE: noa-tactical-ops.onrender.com
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Page and health
+        run: |
+          curl -sS -m 90 -o /dev/null -w "page: %{http_code}\n" "https://$SITE/"
+          curl -sS -m 30 -i "https://$SITE/api/health"
+          echo
+          curl -sS -m 30 -o /dev/null -w "login (wrong code): %{http_code}\n" -X POST -H 'Content-Type: application/json' \
+            -d '{"station":"smoke-test","code":"wrong"}' "https://$SITE/api/login"
+      - name: WebSocket through the proxy (an invalid token must be answered with close code 4401)
+        run: |
+          node -e '
+            const ws = new WebSocket("wss://" + process.env.SITE + "/ws?token=invalid");
+            const t0 = Date.now();
+            ws.onopen = () => console.log("open after", Date.now() - t0, "ms");
+            ws.onerror = (e) => console.log("error:", e.message ?? e.type);
+            ws.onclose = (e) => { console.log("close code", e.code, "reason", JSON.stringify(e.reason), "after", Date.now() - t0, "ms"); process.exit(e.code === 4401 ? 0 : 1); };
+            setTimeout(() => { console.log("no close within 20s"); process.exit(1); }, 20000);
+          '
