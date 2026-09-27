@@ -1,4 +1,4 @@
-import { AgencyStatus, IncidentStatus, IncidentTier, ParkingStatus, RouteStatus, UnitStatus, UnitType } from '../types/tactical';
+import { AgencyStatus, BusRoute, BusStatus, IncidentStatus, IncidentTier, ParkingStatus, RouteStatus, UnitStatus, UnitType } from '../types/tactical';
 
 // Hebrew labels shared by the UI and the server (which writes them into the operations log)
 
@@ -46,4 +46,16 @@ export const PARKING_STATUS_LABEL: Record<ParkingStatus, string> = {
   filling: 'מתמלא',
   full: 'מלא',
   closed: 'סגור',
+};
+
+export const BUS_ROUTE_LABEL: Record<BusRoute, string> = {
+  'jlm-ka': 'קו 201 ירושלים ← קריית ארבע',
+  'ka-jlm': 'קו 201 קריית ארבע ← ירושלים',
+  shuttle: 'שאטלים',
+};
+
+export const BUS_STATUS_LABEL: Record<BusStatus, string> = {
+  waiting: 'ממתין ליציאה',
+  'en-route': 'בדרך',
+  arrived: 'הגיע',
 };

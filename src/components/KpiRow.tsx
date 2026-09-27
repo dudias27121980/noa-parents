@@ -1,4 +1,4 @@
-import { Building2, Route, SquareParking, Users } from 'lucide-react';
+import { Building2, Bus, Route, SquareParking, Users, UsersRound } from 'lucide-react';
 import { KpiAction, KpiCard, KpiTone } from '../types/tactical';
 
 interface Props {
@@ -7,6 +7,8 @@ interface Props {
   onOpenForces: () => void;
   onOpenRoutes: () => void;
   onOpenAgencies: () => void;
+  onOpenWorship: () => void;
+  onOpenBuses: () => void;
 }
 
 const TONE: Record<KpiTone, { ring: string; text: string; bar: string }> = {
@@ -23,18 +25,22 @@ const ICON: Record<KpiAction, typeof Users> = {
   forces: Users,
   routes: Route,
   agencies: Building2,
+  worship: UsersRound,
+  buses: Bus,
 };
 
-export function KpiRow({ kpis, onOpenParking, onOpenForces, onOpenRoutes, onOpenAgencies }: Props) {
+export function KpiRow({ kpis, onOpenParking, onOpenForces, onOpenRoutes, onOpenAgencies, onOpenWorship, onOpenBuses }: Props) {
   const handlers: Record<KpiAction, () => void> = {
     parking: onOpenParking,
     forces: onOpenForces,
     routes: onOpenRoutes,
     agencies: onOpenAgencies,
+    worship: onOpenWorship,
+    buses: onOpenBuses,
   };
 
   return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
       {kpis.map((k) => {
         const tone = TONE[k.tone];
         const Icon = ICON[k.action];

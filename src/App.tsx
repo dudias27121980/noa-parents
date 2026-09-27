@@ -14,6 +14,9 @@ import { AgenciesScreen } from './components/AgenciesScreen';
 import { MilestoneModal } from './components/MilestoneModal';
 import { ParkingModal } from './components/ParkingModal';
 import { TitleBanner } from './components/TitleBanner';
+import { WorshipModal } from './components/WorshipModal';
+import { BusModal } from './components/BusModal';
+import { busTotals, fmt, worshipSummary } from './shared/buses';
 import { OccupancyLevel, lotRatio, occupancyLevel, parkingTotals, percent } from './shared/parking';
 import { SimModal } from './components/SimModal';
 import { SCREENS } from './components/screens';
@@ -75,7 +78,7 @@ function Dashboard({
   onLogout,
   headerActions,
 }: Props & { view: StoreView; state: SharedState }) {
-  const { milestones, incidents, units, agencies, parkingLots, routes, scenarios, logs, alertLevel, mainFrequency, shift, hqName } =
+  const { milestones, incidents, units, agencies, parkingLots, worshipReports, buses, routes, scenarios, logs, alertLevel, mainFrequency, shift, hqName } =
     state;
   const online = view.status === 'online';
   // Wall display: the whole working area is view-only (the server refuses changes too)
@@ -100,6 +103,8 @@ function Dashboard({
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
   const selectedMilestone = milestones.find((m) => m.id === selectedMilestoneId) ?? null;
   const [isParkingModalOpen, setIsParkingModalOpen] = useState(false);
+  const [isWorshipModalOpen, setIsWorshipModalOpen] = useState(false);
+  const [isBusModalOpen, setIsBusModalOpen] = useState(false);
   const [isSimModalOpen, setIsSimModalOpen] = useState(false);
 
   // Target clocks run on the browser clock: countdowns are derived from the schedule each tick
@@ -163,6 +168,9 @@ function Dashboard({
     const closedRoutes = routes.filter((r) => r.status === 'closed').length;
     const problemAgency = agencies.find((a) => a.status === 'disconnected') ?? agencies.find((a) => a.status === 'degraded');
 
+    const worship = worshipSummary(worshipReports);
+    const bus = busTotals(buses);
+
     return INITIAL_KPIS.map((k): KpiCard => {
       switch (k.action) {
         case 'parking': {
@@ -206,9 +214,33 @@ function Dashboard({
               : 'כל הכוחות החבירים מחוברים',
             trend: '',
           };
+        case 'worship': {
+          if (!worship.latest) return { ...k, value: '—', subLabel: 'אין דיווחים', trend: 'להזנת דיווח: לחיצה על הריבוע', tone: 'info' };
+          const c = worship.change;
+          return {
+            ...k,
+            value: fmt(worship.latest.count),
+            unit: 'מתפללים',
+            tone: 'info',
+            subLabel: `דיווח אחרון ${worship.latest.time}${c === null ? '' : c === 0 ? ' · ללא שינוי' : ` · ${c > 0 ? '▲' : '▼'} ${fmt(Math.abs(c))}`}`,
+            trend: worship.peak ? `שיא: ${fmt(worship.peak.count)} ב-${worship.peak.time}` : '',
+          };
+        }
+        case 'buses': {
+          if (!bus.buses) return { ...k, value: '0/0', subLabel: 'אין אוטובוסים', trend: 'להזנת אוטובוסים: לחיצה על הריבוע', tone: 'info' };
+          const r = bus.perRoute;
+          return {
+            ...k,
+            value: `${bus.departed}/${bus.buses}`,
+            unit: 'יצאו',
+            tone: 'info',
+            subLabel: `י-ם←ק"א ${fmt(r['jlm-ka'].passengers)} · ק"א←י-ם ${fmt(r['ka-jlm'].passengers)} · שאטלים ${fmt(r.shuttle.passengers)}`,
+            trend: `סה"כ ${fmt(bus.passengers)} נוסעים${bus.enRoute ? ` · ${bus.enRoute} בדרך` : ''}`,
+          };
+        }
       }
     });
-  }, [units, agencies, parkingLots, routes]);
+  }, [units, agencies, parkingLots, routes, worshipReports, buses]);
 
   // Parking alarm: five seconds of beeps and a red message when the overall occupancy, or any single open
   // lot, reaches 90%. Only on the crossing (not when the page opens already red), at every station that
@@ -446,6 +478,8 @@ function Dashboard({
         <KpiRow
           kpis={kpis}
           onOpenParking={() => setIsParkingModalOpen(true)}
+          onOpenWorship={() => setIsWorshipModalOpen(true)}
+          onOpenBuses={() => setIsBusModalOpen(true)}
           onOpenForces={() => setCurrentScreen('forces')}
           onOpenRoutes={() => setCurrentScreen('map')}
           onOpenAgencies={() => setCurrentScreen('agencies')}
@@ -494,6 +528,24 @@ function Dashboard({
         />
       )}
 
+      {isWorshipModalOpen && (
+        <WorshipModal
+          reports={worshipReports}
+          onAdd={(fields) => send({ type: 'worship.add', fields })}
+          onUpdate={(id, patch) => void send({ type: 'worship.update', id, patch })}
+          onDelete={(id) => void send({ type: 'worship.delete', id })}
+          onClose={() => setIsWorshipModalOpen(false)}
+        />
+      )}
+      {isBusModalOpen && (
+        <BusModal
+          buses={buses}
+          onAdd={(fields) => void send({ type: 'bus.add', fields })}
+          onUpdate={(id, patch) => void send({ type: 'bus.update', id, patch })}
+          onDelete={(id) => void send({ type: 'bus.delete', id })}
+          onClose={() => setIsBusModalOpen(false)}
+        />
+      )}
       {isParkingModalOpen && (
         <ParkingModal
           lots={parkingLots}
