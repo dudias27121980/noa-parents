@@ -60,3 +60,9 @@ export const playCompleteChime = () => {
   tone(880, 0.12, 0.18, 'sine', 0.07);
   tone(1320, 0.24, 0.3, 'sine', 0.07);
 };
+
+/** Parking alarm: sharp beeps for five seconds (a lot, or all of them, reached 90%) */
+export const PARKING_ALARM_SECONDS = 5;
+export const playParkingAlarm = () => {
+  for (let t = 0; t < PARKING_ALARM_SECONDS; t += 0.5) tone(1000, t, 0.25, 'square', 0.07);
+};

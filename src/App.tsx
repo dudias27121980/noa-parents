@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AlertLevel, Agency, KpiCard, MilestoneStatus, ParkingLot, TacticalIncident, ViewScreen } from './types/tactical';
 import { INITIAL_KPIS } from './data/tacticalData';
 import { HeaderNav } from './components/HeaderNav';
@@ -13,9 +13,10 @@ import { ForcesScreen } from './components/ForcesScreen';
 import { AgenciesScreen } from './components/AgenciesScreen';
 import { MilestoneModal } from './components/MilestoneModal';
 import { ParkingModal } from './components/ParkingModal';
+import { OccupancyLevel, occupancyLevel, parkingTotals, percent } from './shared/parking';
 import { SimModal } from './components/SimModal';
 import { SCREENS } from './components/screens';
-import { playCompleteChime, playEmergencyAlarm, playRadioChirp } from './utils/audio';
+import { playCompleteChime, playEmergencyAlarm, playParkingAlarm, playRadioChirp } from './utils/audio';
 import { phaseCountdowns } from './utils/schedule';
 import { isBoolean, oneOf, usePersistentState } from './utils/persist';
 import {
@@ -37,6 +38,9 @@ import { Radio, WifiOff } from 'lucide-react';
 
 // Per-station preferences stay in this browser; everything operational lives on the server
 const isScreen = oneOf<ViewScreen>(SCREENS.map((s) => s.id));
+
+/** Parking tile colour by overall occupancy: green, yellow (50%), dark orange (75%), red (90%) */
+const LEVEL_TONE: Record<OccupancyLevel, KpiCard['tone']> = { green: 'nominal', yellow: 'caution', orange: 'high', red: 'critical' };
 
 interface Props {
   store: SharedStore;
@@ -148,10 +152,11 @@ function Dashboard({
         .join(', ');
     const fullLots = namesOf('full');
     const closedLots = namesOf('closed');
-    const fillingLots = namesOf('filling');
-    // Free spaces, where a capacity was entered (lots with room only)
-    const counted = lotsWithRoom.filter((p) => p.capacity > 0);
-    const freeSpaces = counted.reduce((sum, p) => sum + Math.max(0, p.capacity - p.occupied), 0);
+    const totals = parkingTotals(parkingLots);
+    // The fullest open lot with a capacity
+    const fullest = parkingLots
+      .filter((p) => p.status !== 'closed' && p.capacity > 0)
+      .sort((a, b) => b.occupied / b.capacity - a.occupied / a.capacity)[0];
     const openRoutes = routes.filter((r) => r.status === 'open').length;
     const blockedRoute = routes.find((r) => r.status === 'closed') ?? routes.find((r) => r.status === 'partial');
     const closedRoutes = routes.filter((r) => r.status === 'closed').length;
@@ -159,21 +164,28 @@ function Dashboard({
 
     return INITIAL_KPIS.map((k): KpiCard => {
       switch (k.action) {
-        case 'parking':
+        case 'parking': {
+          const blocked = [fullLots && `מלאים: ${fullLots}`, closedLots && `סגורים: ${closedLots}`].filter(Boolean).join(' · ');
+          if (totals.ratio === null) {
+            // No capacities entered yet: the status picture only
+            return {
+              ...k,
+              value: `${lotsWithRoom.length}/${parkingLots.length}`,
+              unit: 'פנויים',
+              tone: parkingLots.length && !lotsWithRoom.length ? 'critical' : blocked ? 'warning' : 'nominal',
+              subLabel: blocked || 'כל החניונים פנויים',
+              trend: 'להזנת קיבולת ורכבים: לחיצה על הריבוע',
+            };
+          }
           return {
             ...k,
-            value: `${lotsWithRoom.length}/${parkingLots.length}`,
-            unit: 'פנויים',
-            tone: parkingLots.length && !lotsWithRoom.length ? 'critical' : fullLots || closedLots ? 'warning' : 'nominal',
-            subLabel: fullLots ? `מלאים: ${fullLots}` : closedLots ? `סגורים: ${closedLots}` : 'כל החניונים פנויים',
-            trend: [
-              fullLots && closedLots ? `סגורים: ${closedLots}` : '',
-              fillingLots ? `מתמלאים: ${fillingLots}` : '',
-              counted.length ? `${freeSpaces} מקומות פנויים` : '',
-            ]
-              .filter(Boolean)
-              .join(' · '),
+            value: `${percent(totals.ratio)}%`,
+            unit: 'תפוסה',
+            tone: LEVEL_TONE[occupancyLevel(totals.ratio)],
+            subLabel: `${totals.occupied}/${totals.capacity} רכבים · ${totals.free} מקומות פנויים`,
+            trend: blocked || (fullest ? `הכי מלא: ${fullest.name} ${percent(fullest.occupied / fullest.capacity)}%` : ''),
           };
+        }
         case 'forces':
           return { ...k, value: String(personnel), subLabel: `${onAir.length} צוותים בקשר`, trend: `${deployed} פרוסים` };
         case 'routes':
@@ -196,6 +208,19 @@ function Dashboard({
       }
     });
   }, [units, agencies, parkingLots, routes]);
+
+  // Parking alarm: five seconds of beeps, and a red message, when the overall occupancy reaches 90%.
+  // Only on the crossing (not when the page opens already red), at every station that sees it.
+  const parkingRatio = useMemo(() => parkingTotals(parkingLots).ratio, [parkingLots]);
+  const parkingLevel = parkingRatio === null ? null : occupancyLevel(parkingRatio);
+  const lastParkingLevel = useRef(parkingLevel);
+  useEffect(() => {
+    const was = lastParkingLevel.current;
+    lastParkingLevel.current = parkingLevel;
+    if (parkingLevel !== 'red' || was === 'red') return;
+    if (audioEnabled) playParkingAlarm();
+    showToast(`תפוסת החניונים הגיעה ל-${percent(parkingRatio!)}%`, 8000, true);
+  }, [parkingLevel, parkingRatio, audioEnabled, showToast]);
 
   const unresolvedIncidentsCount = incidents.filter((i) => i.status !== 'resolved').length;
 

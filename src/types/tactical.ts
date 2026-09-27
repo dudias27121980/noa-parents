@@ -63,7 +63,8 @@ export interface SimScenario {
   description: string;
 }
 
-export type KpiTone = 'critical' | 'warning' | 'nominal' | 'info';
+/** caution (yellow) and high (dark orange): the parking occupancy steps between nominal and critical */
+export type KpiTone = 'critical' | 'high' | 'warning' | 'caution' | 'nominal' | 'info';
 export type KpiAction = 'parking' | 'forces' | 'routes' | 'agencies';
 
 export interface KpiCard {

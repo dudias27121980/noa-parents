@@ -197,12 +197,28 @@ describe('core', () => {
     expect(core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { capacity: -1 } }).result.ok).toBe(false);
     expect(core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { status: 'half' as never } }).result.ok).toBe(false);
 
+    // The numbers set the status: 30 of 40 is "filling", 40 of 40 is "full" (and alerts); an explicit close wins
+    const filling = core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { occupied: 30 } });
+    expect(core.getState().parkingLots.find((p) => p.id === 'P-4')!.status).toBe('filling');
+    expect(filling.patch!.logs![0].action).toBe('מאוחדת: פנוי ← מתמלא - 30/40 (75%)');
+    const occ = core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { occupied: 31 } });
+    expect(occ.patch!.logs![0].action).toBe('תפוסת מאוחדת - 31/40 (77%)');
+    expect(occ.notice).toBeUndefined();
+    const full40 = core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { occupied: 40 } });
+    expect(core.getState().parkingLots.find((p) => p.id === 'P-4')!.status).toBe('full');
+    expect(full40.notice).toEqual({ level: 'info', text: 'חניון מאוחדת מלא' });
+    core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { status: 'closed', occupied: 5 } });
+    expect(core.getState().parkingLots.find((p) => p.id === 'P-4')!.status).toBe('closed');
+
     // Add, unique names, delete
     const base = { status: 'available' as const, capacity: 0, occupied: 0, note: '' };
     expect(core.dispatch('א', { type: 'parking.add', fields: { ...base, name: 'מנחת' } }).result).toEqual({ ok: false, error: 'חניון בשם הזה כבר קיים' });
-    const added = core.dispatch('א', { type: 'parking.add', fields: { ...base, name: 'חניון מערבי' } });
+    const added = core.dispatch('א', { type: 'parking.add', fields: { ...base, name: 'חניון מערבי', capacity: 100, occupied: 60 } });
     const id = added.result.ok ? added.result.id! : '';
     expect(id).toBe('P-8');
+    expect(core.getState().parkingLots.find((p) => p.id === id)).toMatchObject({ status: 'filling', capacity: 100, occupied: 60 });
+    expect(added.patch!.logs![0].action).toBe('חניון נוסף: חניון מערבי - 60/100 (60%)');
+    expect(core.dispatch('א', { type: 'parking.add', fields: { ...base, name: 'עמוס', capacity: 10, occupied: 11 } }).result.ok).toBe(false);
     core.dispatch('א', { type: 'parking.delete', id });
     expect(core.getState().parkingLots.some((p) => p.id === id)).toBe(false);
   });

@@ -55,6 +55,7 @@ import { STATUS_BADGE, normalizeMilestones } from '../utils/schedule';
 import { clockTime, formatDate, isIsoDate, isoDate, parseHHMM } from '../utils/time';
 import { nextIdNumber } from '../utils/ids';
 import { changedFields } from '../shared/diff';
+import { lotRatio, percent, statusForOccupancy } from '../shared/parking';
 import type { Db } from './dbTypes';
 
 export interface Outcome {
@@ -196,6 +197,12 @@ const migrate = (s: SharedState, fresh: SharedState): SharedState => ({
 
 const PARKING_STATUSES: readonly ParkingStatus[] = ['available', 'filling', 'full', 'closed'];
 const ROUTE_STATUSES: readonly RouteStatus[] = ['open', 'partial', 'closed'];
+
+/** " - 31/40 (77%)" for a lot with a capacity, "" otherwise */
+const occupancyText = (lot: ParkingLot) => {
+  const r = lotRatio(lot);
+  return r === null ? '' : ` - ${lot.occupied}/${lot.capacity} (${percent(r)}%)`;
+};
 
 /** Parking lot fields from a station; `partial` for an update (only the fields sent) */
 const parkingFields = (raw: Record<string, unknown>, partial: boolean): Partial<ParkingFields> => {
@@ -590,9 +597,11 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
       const raw = obj(a.fields, 'חניון');
       const fields = parkingFields(raw, false) as ParkingFields;
       if (tx.state.parkingLots.some((p) => p.name === fields.name)) fail('חניון בשם הזה כבר קיים');
+      if (fields.capacity > 0 && fields.occupied > fields.capacity) fail(`תפוסה (${fields.occupied}) גדולה מהקיבולת (${fields.capacity})`);
       const lot: ParkingLot = { id: newId('parkingLots', 'P'), ...fields, updated: clockTime(now()) };
+      lot.status = statusForOccupancy(lot);
       tx.upsert('parkingLots', [lot]);
-      tx.log('NOMINAL', 'חניונים', `חניון נוסף: ${lot.name} (${PARKING_STATUS_LABEL[lot.status]})`);
+      tx.log('NOMINAL', 'חניונים', `חניון נוסף: ${lot.name}${occupancyText(lot)}`);
       return lot.id;
     },
 
@@ -604,14 +613,21 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
       if (Object.keys(patch).length === 0) return;
       const next: ParkingLot = { ...target, ...patch, updated: clockTime(now()) };
       if (next.capacity > 0 && next.occupied > next.capacity) fail(`תפוסה (${next.occupied}) גדולה מהקיבולת (${next.capacity})`);
+      // New numbers set the status, unless the station chose one in the same change (e.g. closing the lot)
+      if (!('status' in patch) && ('occupied' in patch || 'capacity' in patch)) next.status = statusForOccupancy(next);
       tx.upsert('parkingLots', [next]);
-      const blocked = patch.status === 'full' || patch.status === 'closed';
+
+      const statusChanged = next.status !== target.status;
+      const blocked = statusChanged && (next.status === 'full' || next.status === 'closed');
+      const numbersChanged = 'occupied' in patch || 'capacity' in patch;
       tx.log(
         blocked ? 'WARNING' : 'NOMINAL',
         'חניונים',
-        patch.status
-          ? `${next.name}: ${PARKING_STATUS_LABEL[target.status]} ← ${PARKING_STATUS_LABEL[next.status]}${next.note ? ` (${next.note})` : ''}`
-          : `עדכון חניון ${next.name}${next.capacity ? ` - ${next.occupied}/${next.capacity}` : ''}`
+        statusChanged
+          ? `${next.name}: ${PARKING_STATUS_LABEL[target.status]} ← ${PARKING_STATUS_LABEL[next.status]}${occupancyText(next)}${next.note ? ` (${next.note})` : ''}`
+          : numbersChanged
+            ? `תפוסת ${next.name}${occupancyText(next)}`
+            : `עדכון חניון ${next.name}`
       );
       if (blocked) tx.notice = { level: 'info', text: `חניון ${next.name} ${PARKING_STATUS_LABEL[next.status]}${next.note ? `: ${next.note}` : ''}` };
     },

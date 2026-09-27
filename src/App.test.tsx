@@ -4,6 +4,10 @@ import userEvent from '@testing-library/user-event';
 import App from './App';
 import { SharedStore } from './sync/store';
 import { createTestServer, TestServer } from './test/testServer';
+import { playParkingAlarm } from './utils/audio';
+
+// Sounds are silent in the test browser anyway; the parking alarm is recorded to check when it fires
+vi.mock('./utils/audio', async (original) => ({ ...(await original<typeof import('./utils/audio')>()), playParkingAlarm: vi.fn() }));
 
 // Fixed browser clock: the demo schedule is laid out around "now", so every countdown is deterministic
 const NOW = new Date('2026-09-26T10:02:00+03:00');
@@ -401,13 +405,59 @@ describe('everything is editable', () => {
     expect(await b.q.findByText('עמדה א: חניון מנחת מלא')).toBeInTheDocument();
     await waitFor(() => expect(tile(b)).toHaveTextContent('מלאים: מנחת'));
 
-    // Capacity by double-click: the tile counts free spaces
+  });
+
+  it('parking occupancy: percent per lot, the tile steps green → yellow → orange → red, and 90% sounds the alarm', async () => {
+    const a = await openStation('עמדה א');
+    const b = await openStation('עמדה ב');
+    const tile = (st: typeof a) => st.q.getByRole('button', { name: /תמונת מצב חניונים/ });
+    const toneOf = (st: typeof a) => tile(st).className;
+    await a.user.click(tile(a));
+    const dialog = within(a.q.getByRole('dialog'));
+    const lot = (name: string) => dialog.getByText(name, { exact: true }).closest('[data-lot]') as HTMLElement;
+
+    // Enter the capacity and the vehicles so far (double-click)
     await a.user.dblClick(lot('מאוחדת'));
-    await a.user.type(dialog.getByLabelText('קיבולת (מקומות)'), '40');
-    await a.user.type(dialog.getByLabelText('תפוסה (רכבים)'), '15');
+    expect(dialog.getByLabelText('שם החניון *')).toHaveValue('מאוחדת');
+    await a.user.type(dialog.getByLabelText('קיבולת רכבים בחניון *'), '100');
+    await a.user.clear(dialog.getByLabelText('כמה רכבים עד עכשיו'));
+    await a.user.type(dialog.getByLabelText('כמה רכבים עד עכשיו'), '20');
+    expect(dialog.getByText('תפוסה: 20%')).toBeInTheDocument();
     await a.user.click(dialog.getByRole('button', { name: 'שמירה' }));
-    await waitFor(() => expect(tile(a)).toHaveTextContent('25 מקומות פנויים'));
-    expect(within(lot('מאוחדת')).getByText('15/40')).toBeInTheDocument();
+
+    await waitFor(() => expect(within(lot('מאוחדת')).getByTestId('lot-percent')).toHaveTextContent('20%'));
+    await waitFor(() => expect(tile(a)).toHaveTextContent('20%'));
+    expect(tile(a)).toHaveTextContent('20/100 רכבים · 80 מקומות פנויים');
+    expect(toneOf(a)).toContain('emerald');
+
+    // Quick update on the card: type and Enter
+    const count = () => within(lot('מאוחדת')).getByLabelText('רכבים כרגע במאוחדת');
+    const setCount = async (n: number) => {
+      await a.user.clear(count());
+      await a.user.type(count(), `${n}{Enter}`);
+    };
+    await setCount(50);
+    await waitFor(() => expect(toneOf(a)).toContain('yellow'));
+    await setCount(75);
+    await waitFor(() => expect(toneOf(a)).toContain('orange'));
+    expect(playParkingAlarm).not.toHaveBeenCalled();
+
+    // 89 → still orange; + reaches 90%: red at both stations, the alarm sounds at each, once
+    await setCount(89);
+    await waitFor(() => expect(tile(a)).toHaveTextContent('89%'));
+    await a.user.click(within(lot('מאוחדת')).getByRole('button', { name: 'עוד רכב במאוחדת' }));
+    await waitFor(() => expect(toneOf(a)).toContain('red'));
+    await waitFor(() => expect(toneOf(b)).toContain('red'));
+    expect(playParkingAlarm).toHaveBeenCalledTimes(2);
+    expect(await a.q.findByText('תפוסת החניונים הגיעה ל-90%')).toBeInTheDocument();
+    // Staying red does not repeat it
+    await a.user.click(within(lot('מאוחדת')).getByRole('button', { name: 'עוד רכב במאוחדת' }));
+    await waitFor(() => expect(tile(a)).toHaveTextContent('91%'));
+    expect(playParkingAlarm).toHaveBeenCalledTimes(2);
+
+    // A count above the capacity is not sent
+    await setCount(150);
+    await waitFor(() => expect(count()).toHaveValue('91'));
   });
 
   it('drill scenarios can be added and triggered', async () => {

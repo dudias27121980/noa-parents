@@ -11,7 +11,9 @@ interface Props {
 
 const TONE: Record<KpiTone, { ring: string; text: string; bar: string }> = {
   critical: { ring: 'border-red-500/60 hover:border-red-400', text: 'text-red-300', bar: 'bg-red-500' },
+  high: { ring: 'border-orange-600/70 hover:border-orange-500', text: 'text-orange-400', bar: 'bg-orange-600' },
   warning: { ring: 'border-amber-400/50 hover:border-amber-300', text: 'text-amber-300', bar: 'bg-amber-400' },
+  caution: { ring: 'border-yellow-400/60 hover:border-yellow-300', text: 'text-yellow-300', bar: 'bg-yellow-400' },
   nominal: { ring: 'border-emerald-500/40 hover:border-emerald-400', text: 'text-emerald-300', bar: 'bg-emerald-500' },
   info: { ring: 'border-cyan-500/40 hover:border-cyan-400', text: 'text-cyan-300', bar: 'bg-cyan-400' },
 };
