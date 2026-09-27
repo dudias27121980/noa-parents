@@ -133,6 +133,24 @@ export const INITIAL_KPIS: KpiCard[] = [
     tone: 'info',
     action: 'agencies',
   },
+  {
+    id: 'kpi-worship',
+    label: 'סטטוס מתפללים',
+    value: '—',
+    subLabel: 'אין דיווחים',
+    trend: '',
+    tone: 'info',
+    action: 'worship',
+  },
+  {
+    id: 'kpi-buses',
+    label: 'ניהול אוטובוסים',
+    value: '0/0',
+    subLabel: 'אין אוטובוסים',
+    trend: '',
+    tone: 'info',
+    action: 'buses',
+  },
 ];
 
 export const buildDemoIncidents = (date: string = isoDate()): TacticalIncident[] => [

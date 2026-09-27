@@ -4,7 +4,11 @@ import {
   IncidentStatus,
   LogEntry,
   LogSeverity,
+  BusRoute,
+  BusStatus,
+  BusTrip,
   MapPoint,
+  WorshipReport,
   ParkingLot,
   ParkingStatus,
   Milestone,
@@ -23,7 +27,9 @@ import {
   CollectionName,
   MilestoneFields,
   Notice,
+  BusFields,
   ParkingFields,
+  WorshipFields,
   SharedState,
   SingletonName,
   StatePatch,
@@ -32,6 +38,8 @@ import {
 import {
   AGENCY_STATUS_LABEL,
   INCIDENT_STATUS_LABEL,
+  BUS_ROUTE_LABEL,
+  BUS_STATUS_LABEL,
   PARKING_STATUS_LABEL,
   ROUTE_STATUS_LABEL,
   TIER_LABEL,
@@ -181,8 +189,9 @@ class Tx {
  * 1: first shared server. 2: tasks as {id,text,done}; LPR alerts, routes, drill scenarios, HQ name.
  * 3: parking lots replace the LPR alerts.
  * 4: the HQ name becomes the page title (untouched old default → the new one).
+ * 5: worshipper reports and bus trips (start empty).
  */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 /** Upgrades a database from any earlier version in place, keeping everything already entered */
 const migrate = (s: SharedState, fresh: SharedState): SharedState => ({
@@ -194,6 +203,8 @@ const migrate = (s: SharedState, fresh: SharedState): SharedState => ({
     ),
   })),
   parkingLots: s.parkingLots?.length ? s.parkingLots : fresh.parkingLots,
+  worshipReports: s.worshipReports ?? [],
+  buses: s.buses ?? [],
   routes: s.routes?.length ? s.routes : fresh.routes,
   scenarios: s.scenarios?.length ? s.scenarios : fresh.scenarios,
   hqName: s.hqName && s.hqName !== PREVIOUS_DEFAULT_HQ_NAME ? s.hqName : fresh.hqName,
@@ -201,6 +212,36 @@ const migrate = (s: SharedState, fresh: SharedState): SharedState => ({
 
 const PARKING_STATUSES: readonly ParkingStatus[] = ['available', 'filling', 'full', 'closed'];
 const ROUTE_STATUSES: readonly RouteStatus[] = ['open', 'partial', 'closed'];
+
+const BUS_ROUTES: readonly BusRoute[] = ['jlm-ka', 'ka-jlm', 'shuttle'];
+const BUS_STATUSES: readonly BusStatus[] = ['waiting', 'en-route', 'arrived'];
+/** "HH:MM", zero-padded */
+const hhmmOf = (v: unknown, field: string, { required = true } = {}): string => {
+  const s = str(v ?? '', field, { max: 5 });
+  if (!s && !required) return '';
+  const m = parseHHMM(s);
+  return m === null ? fail(`שעה לא תקינה: ${field}`) : `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+};
+const worshipFields = (raw: Record<string, unknown>, partial: boolean): Partial<WorshipFields> => {
+  const has = (k: string) => k in raw || !partial;
+  const out: Partial<WorshipFields> = {};
+  if (has('time')) out.time = hhmmOf(raw.time, 'שעה');
+  if (has('count')) out.count = int(raw.count, 0, 10_000_000, 'כמות מתפללים');
+  if (has('note')) out.note = str(raw.note ?? '', 'הערה', { max: 200 });
+  return out;
+};
+const busFields = (raw: Record<string, unknown>, partial: boolean): Partial<BusFields> => {
+  const has = (k: string) => k in raw || !partial;
+  const out: Partial<BusFields> = {};
+  if (has('number')) out.number = str(raw.number, 'מספר אוטובוס', { required: true, max: 20 });
+  if (has('route')) out.route = oneOf(raw.route, BUS_ROUTES, 'קו');
+  if (has('status')) out.status = oneOf(raw.status ?? 'waiting', BUS_STATUSES, 'מצב');
+  if (has('passengers')) out.passengers = int(raw.passengers ?? 0, 0, 200, 'נוסעים');
+  if (has('departure')) out.departure = hhmmOf(raw.departure, 'שעת יציאה', { required: false });
+  if (has('note')) out.note = str(raw.note ?? '', 'הערה', { max: 200 });
+  return out;
+};
+const n = (v: number) => v.toLocaleString('he-IL');
 
 /** A map position from a station: {x, y} in percent, or null to take it off the map */
 const mapPoint = (v: unknown): MapPoint | null => {
@@ -243,6 +284,8 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
       units: INITIAL_UNITS,
       agencies: INITIAL_AGENCIES,
       parkingLots: INITIAL_PARKING_LOTS,
+      worshipReports: [],
+      buses: [],
       routes: INITIAL_ROUTES,
       scenarios: INITIAL_SCENARIOS,
       logs: buildDemoLogs(isoDate(t)),
@@ -274,7 +317,7 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
     const migrated = state;
     db.transaction(() => {
       db.replaceCollection('milestones', migrated.milestones);
-      (['parkingLots', 'routes', 'scenarios'] as const).forEach((c) => db.replaceCollection(c, migrated[c]));
+      (['parkingLots', 'worshipReports', 'buses', 'routes', 'scenarios'] as const).forEach((c) => db.replaceCollection(c, migrated[c]));
       db.setSingleton('hqName', migrated.hqName);
       db.setSingleton('schemaVersion', SCHEMA_VERSION);
     });
@@ -284,13 +327,15 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
   let incidentSeq = nextIdNumber(state.incidents.map((i) => i.id), 7300);
   let milestoneSeq = nextIdNumber(state.milestones.map((m) => m.id), 100);
   // Other collections: never reuse the number of a deleted record (a station may still have it open)
-  const seqs = {} as Record<'units' | 'agencies' | 'parkingLots' | 'routes' | 'scenarios', number>;
+  const seqs = {} as Record<'units' | 'agencies' | 'parkingLots' | 'worshipReports' | 'buses' | 'routes' | 'scenarios', number>;
   const resetSeqs = () => {
     seqs.units = nextIdNumber(state!.units.map((r) => r.id), 10);
     seqs.agencies = nextIdNumber(state!.agencies.map((r) => r.id), 10);
     seqs.parkingLots = nextIdNumber(state!.parkingLots.map((r) => r.id), 1);
     seqs.routes = nextIdNumber(state!.routes.map((r) => r.id), 1000);
     seqs.scenarios = nextIdNumber(state!.scenarios.map((r) => r.id), 10);
+    seqs.worshipReports = nextIdNumber(state!.worshipReports.map((r) => r.id), 1);
+    seqs.buses = nextIdNumber(state!.buses.map((r) => r.id), 1);
   };
   resetSeqs();
   const newId = (c: keyof typeof seqs, prefix: string) => `${prefix}-${seqs[c]++}`;
@@ -662,6 +707,56 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
       const target = tx.state.parkingLots.find((p) => p.id === a.id) ?? fail(NOT_FOUND);
       tx.remove('parkingLots', [target.id]);
       tx.log('WARNING', 'חניונים', `חניון הוסר: ${target.name}`);
+    },
+
+    'worship.add'(tx, a) {
+      const fields = worshipFields(obj(a.fields, 'דיווח'), false) as WorshipFields;
+      const report: WorshipReport = { id: newId('worshipReports', 'W'), date: isoDate(now()), ...fields };
+      tx.upsert('worshipReports', [report]);
+      tx.log('NOMINAL', 'סטטוס מתפללים', `דיווח ${report.time}: ${n(report.count)} מתפללים${report.note ? ` (${report.note})` : ''}`);
+      return report.id;
+    },
+
+    'worship.update'(tx, a) {
+      const target = tx.state.worshipReports.find((r) => r.id === a.id) ?? fail(NOT_FOUND);
+      const patch = changedFields(target, worshipFields(obj(a.patch, 'שינויים'), true));
+      if (Object.keys(patch).length === 0) return;
+      const next = { ...target, ...patch };
+      tx.upsert('worshipReports', [next]);
+      tx.log('NOMINAL', 'סטטוס מתפללים', `תיקון דיווח ${next.time}: ${n(next.count)} מתפללים`);
+    },
+
+    'worship.delete'(tx, a) {
+      const target = tx.state.worshipReports.find((r) => r.id === a.id) ?? fail(NOT_FOUND);
+      tx.remove('worshipReports', [target.id]);
+      tx.log('WARNING', 'סטטוס מתפללים', `דיווח נמחק: ${target.time} - ${n(target.count)} מתפללים`);
+    },
+
+    'bus.add'(tx, a) {
+      const fields = busFields(obj(a.fields, 'אוטובוס'), false) as BusFields;
+      const bus: BusTrip = { id: newId('buses', 'B'), ...fields };
+      tx.upsert('buses', [bus]);
+      tx.log('NOMINAL', 'ניהול אוטובוסים', `אוטובוס ${bus.number} נוסף - ${BUS_ROUTE_LABEL[bus.route]} (${BUS_STATUS_LABEL[bus.status]})`);
+      return bus.id;
+    },
+
+    'bus.update'(tx, a) {
+      const target = tx.state.buses.find((b) => b.id === a.id) ?? fail(NOT_FOUND);
+      const patch = changedFields(target, busFields(obj(a.patch, 'שינויים'), true));
+      if (Object.keys(patch).length === 0) return;
+      const next = { ...target, ...patch };
+      tx.upsert('buses', [next]);
+      const notes: string[] = [];
+      if (patch.status) notes.push(`${BUS_STATUS_LABEL[target.status]} ← ${BUS_STATUS_LABEL[next.status]}`);
+      if (patch.passengers !== undefined) notes.push(`${next.passengers} נוסעים`);
+      if (patch.route) notes.push(BUS_ROUTE_LABEL[next.route]);
+      tx.log('NOMINAL', 'ניהול אוטובוסים', `אוטובוס ${next.number}${notes.length ? `: ${notes.join(', ')}` : ' עודכן'}`);
+    },
+
+    'bus.delete'(tx, a) {
+      const target = tx.state.buses.find((b) => b.id === a.id) ?? fail(NOT_FOUND);
+      tx.remove('buses', [target.id]);
+      tx.log('WARNING', 'ניהול אוטובוסים', `אוטובוס הוסר: ${target.number} (${BUS_ROUTE_LABEL[target.route]})`);
     },
 
     'route.add'(tx, a) {

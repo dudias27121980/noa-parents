@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useState } from 'react';
+import { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { Plus, Save, Trash2, X } from 'lucide-react';
 
 export function Panel({
@@ -209,5 +209,60 @@ export function AddTile({ label, onClick, disabled = false }: { label: string; o
     >
       <Plus size={18} /> {label}
     </button>
+  );
+}
+
+/**
+ * A number edited in place: type and press Enter (or leave the field) to send it; Escape or an
+ * invalid value goes back. Follows updates from elsewhere while not being typed in.
+ */
+export function CountInput({
+  value,
+  max,
+  onCommit,
+  label,
+  className = '',
+}: {
+  value: number;
+  max: number;
+  onCommit: (v: number) => void;
+  label: string;
+  className?: string;
+}) {
+  const [text, setText] = useState(String(value));
+  const [focused, setFocused] = useState(false);
+  const cancelled = useRef(false);
+  useEffect(() => {
+    if (!focused) setText(String(value));
+  }, [value, focused]);
+  const valid = /^\d{1,7}$/.test(text) && Number(text) <= max;
+  return (
+    <input
+      aria-label={label}
+      value={text}
+      inputMode="numeric"
+      dir="ltr"
+      data-edit-control
+      onChange={(e) => setText(e.target.value.trim())}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false);
+        if (cancelled.current) {
+          cancelled.current = false;
+          setText(String(value));
+        } else if (valid && Number(text) !== value) onCommit(Number(text));
+        else if (!valid) setText(String(value));
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        if (e.key === 'Escape') {
+          e.stopPropagation(); // keep the window open
+          cancelled.current = true;
+          e.currentTarget.blur();
+        }
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className={`${fieldClass(!valid)} !w-20 py-0.5 text-center font-mono ${className}`}
+    />
   );
 }

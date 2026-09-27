@@ -244,6 +244,49 @@ describe('core', () => {
     }
   });
 
+  it('worshipper reports: time and count, checked and logged', () => {
+    const core = memCore();
+    expect(core.getState().worshipReports).toEqual([]);
+    const out = core.dispatch('א', { type: 'worship.add', fields: { time: '9:05', count: 4200, note: 'שער ראשי' } });
+    const id = out.result.ok ? out.result.id! : '';
+    expect(core.getState().worshipReports[0]).toMatchObject({ id, time: '09:05', count: 4200, date: '2026-09-26' });
+    expect(out.patch!.logs![0]).toMatchObject({ source: 'סטטוס מתפללים', action: 'דיווח 09:05: 4,200 מתפללים (שער ראשי)' });
+    for (const bad of [{ time: '25:00', count: 1, note: '' }, { time: '10:00', count: -1, note: '' }, { time: '10:00', count: 1.5, note: '' }]) {
+      expect(core.dispatch('א', { type: 'worship.add', fields: bad }).result.ok).toBe(false);
+    }
+    core.dispatch('א', { type: 'worship.update', id, patch: { count: 4300 } });
+    expect(core.getState().worshipReports[0].count).toBe(4300);
+    core.dispatch('א', { type: 'worship.delete', id });
+    expect(core.getState().worshipReports).toEqual([]);
+  });
+
+  it('bus trips: per line, status and passengers checked and logged; the same bus may run several trips', () => {
+    const core = memCore();
+    const base = { route: 'jlm-ka' as const, status: 'waiting' as const, passengers: 0, departure: '', note: '' };
+    const a = core.dispatch('א', { type: 'bus.add', fields: { ...base, number: '1234', departure: '8:30' } });
+    const b = core.dispatch('א', { type: 'bus.add', fields: { ...base, number: '1234', route: 'ka-jlm' } });
+    expect(a.result.ok && b.result.ok).toBe(true);
+    const id = a.result.ok ? a.result.id! : '';
+    expect(core.getState().buses.find((x) => x.id === id)).toMatchObject({ departure: '08:30', status: 'waiting' });
+    const moved = core.dispatch('א', { type: 'bus.update', id, patch: { status: 'en-route', passengers: 48 } });
+    expect(moved.patch!.logs![0].action).toBe('אוטובוס 1234: ממתין ליציאה ← בדרך, 48 נוסעים');
+    for (const bad of [{ passengers: 201 }, { route: 'tlv' }, { status: 'lost' }, { number: ' ' }, { departure: '7' }]) {
+      expect(core.dispatch('א', { type: 'bus.update', id, patch: bad as never }).result.ok).toBe(false);
+    }
+    core.dispatch('א', { type: 'bus.delete', id });
+    expect(core.getState().buses).toHaveLength(1);
+  });
+
+  it('schema 5: existing data gets empty worshipper reports and buses', () => {
+    const storage = tempDb();
+    const v4 = openDb(storage);
+    createCore({ db: v4, now });
+    v4.setSingleton('schemaVersion', 4);
+    const upgraded = createCore({ db: openDb(storage), now }).getState();
+    expect(upgraded.worshipReports).toEqual([]);
+    expect(upgraded.buses).toEqual([]);
+  });
+
   it('routes: unique names; closing a route alerts the other stations', () => {
     const core = memCore();
     expect(core.dispatch('א', { type: 'route.add', fields: { name: 'ציר 60', status: 'open', note: '' } }).result.ok).toBe(false);

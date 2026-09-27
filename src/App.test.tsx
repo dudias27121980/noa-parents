@@ -529,6 +529,71 @@ describe('everything is editable', () => {
     await waitFor(() => expect(playParkingAlarm).toHaveBeenCalledTimes(2));
   });
 
+  it('worshipper status: a report of time and count shows on the tile at every station, with the change', async () => {
+    const a = await openStation('עמדה א');
+    const b = await openStation('עמדה ב');
+    const tile = (st: typeof a) => st.q.getByRole('button', { name: /סטטוס מתפללים/ });
+    expect(tile(a)).toHaveTextContent('אין דיווחים');
+    await a.user.click(tile(a));
+    const dialog = within(a.q.getByRole('dialog'));
+    const report = async (time: string, count: string) => {
+      await a.user.clear(dialog.getByLabelText('שעה'));
+      await a.user.type(dialog.getByLabelText('שעה'), time);
+      await a.user.type(dialog.getByLabelText('כמות מתפללים'), count);
+      await a.user.click(dialog.getByRole('button', { name: 'הוספת דיווח' }));
+      await waitFor(() => expect(dialog.getByLabelText('כמות מתפללים')).toHaveValue(''));
+    };
+    await report('09:00', '3000');
+    await report('10:30', '4,500');
+    await waitFor(() => expect(tile(b)).toHaveTextContent('4,500'));
+    expect(tile(b)).toHaveTextContent('דיווח אחרון 10:30');
+    expect(tile(b)).toHaveTextContent('▲ 1,500');
+    expect(tile(b)).toHaveTextContent('שיא: 4,500 ב-10:30');
+    // Newest first, with the change
+    const rows = dialog.getAllByTitle('לחיצה כפולה לעריכה');
+    expect(rows[0]).toHaveTextContent('10:30');
+    expect(rows[0]).toHaveTextContent('+1,500');
+  });
+
+  it('buses: add buses in the full list, then status and passengers by line; the tile counts departed and passengers', async () => {
+    const a = await openStation('עמדה א');
+    const b = await openStation('עמדה ב');
+    const tile = (st: typeof a) => st.q.getByRole('button', { name: /ניהול אוטובוסים/ });
+    expect(tile(a)).toHaveTextContent('0/0');
+    await a.user.click(tile(a));
+    const dialog = within(a.q.getByRole('dialog'));
+    await a.user.click(dialog.getByRole('tab', { name: /כלל האוטובוסים/ }));
+    const add = async (number: string, route: string) => {
+      await a.user.click(dialog.getByRole('button', { name: /הוספת אוטובוס/ }));
+      await a.user.type(dialog.getByLabelText('מספר אוטובוס *'), number);
+      await a.user.selectOptions(dialog.getByLabelText('קו'), route);
+      await a.user.click(dialog.getByRole('button', { name: 'שמירה' }));
+      await waitFor(() => expect(dialog.getByText(number, { exact: true })).toBeInTheDocument());
+    };
+    await add('101', 'jlm-ka');
+    await add('102', 'jlm-ka');
+    await add('201', 'ka-jlm');
+    await add('S1', 'shuttle');
+    await waitFor(() => expect(tile(a)).toHaveTextContent('0/4'));
+
+    await a.user.click(dialog.getByRole('tab', { name: 'לפי קווים' }));
+    const line = (name: RegExp) => within(dialog.getByRole('region', { name }));
+    await a.user.click(within(line(/ירושלים ← קריית ארבע/).getByRole('group', { name: 'מצב אוטובוס 101' })).getByRole('button', { name: 'בדרך' }));
+    const setPassengers = async (bus: string, n: number) => {
+      const input = dialog.getByLabelText(`נוסעים באוטובוס ${bus}`);
+      await a.user.clear(input);
+      await a.user.type(input, `${n}{Enter}`);
+    };
+    await setPassengers('101', 52);
+    await setPassengers('201', 40);
+    await setPassengers('S1', 18);
+
+    await waitFor(() => expect(dialog.getByTestId('bus-total-passengers')).toHaveTextContent('110'));
+    await waitFor(() => expect(tile(b)).toHaveTextContent('1/4'));
+    expect(tile(b)).toHaveTextContent('י-ם←ק"א 52 · ק"א←י-ם 40 · שאטלים 18');
+    expect(tile(b)).toHaveTextContent('סה"כ 110 נוסעים · 1 בדרך');
+  });
+
   it('drill scenarios can be added and triggered', async () => {
     const { user, q } = await openStation();
     await user.click(q.getByRole('button', { name: /הפעלת תרגיל קיצון/ }));

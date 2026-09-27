@@ -67,7 +67,7 @@ export interface SimScenario {
 
 /** caution (yellow) and high (dark orange): the parking occupancy steps between nominal and critical */
 export type KpiTone = 'critical' | 'high' | 'warning' | 'caution' | 'nominal' | 'info';
-export type KpiAction = 'parking' | 'forces' | 'routes' | 'agencies';
+export type KpiAction = 'parking' | 'forces' | 'routes' | 'agencies' | 'worship' | 'buses';
 
 export interface KpiCard {
   id: string;
@@ -149,4 +149,32 @@ export interface LogEntry {
   action: string;
   /** Station that performed the action (absent for system/demo entries) */
   station?: string;
+}
+
+/** A report of how many worshippers are at the site, at a given time */
+export interface WorshipReport {
+  id: string;
+  /** "YYYY-MM-DD" */
+  date: string;
+  /** "HH:MM" as reported */
+  time: string;
+  count: number;
+  note: string;
+}
+
+/** Line 201 each way, and the shuttles */
+export type BusRoute = 'jlm-ka' | 'ka-jlm' | 'shuttle';
+export type BusStatus = 'waiting' | 'en-route' | 'arrived';
+
+/** One bus trip (a bus doing several trips has a row for each) */
+export interface BusTrip {
+  id: string;
+  /** Bus number / licence as written by the HQ */
+  number: string;
+  route: BusRoute;
+  status: BusStatus;
+  passengers: number;
+  /** Planned or actual departure "HH:MM"; empty if unknown */
+  departure: string;
+  note: string;
 }

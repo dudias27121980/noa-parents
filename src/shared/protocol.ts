@@ -3,6 +3,8 @@ import {
   AlertLevel,
   LogEntry,
   ParkingLot,
+  WorshipReport,
+  BusTrip,
   Milestone,
   MilestoneStatus,
   MilestoneTask,
@@ -29,6 +31,8 @@ export interface SharedState {
   units: TacticalUnit[];
   agencies: Agency[];
   parkingLots: ParkingLot[];
+  worshipReports: WorshipReport[];
+  buses: BusTrip[];
   routes: TacticalRoute[];
   scenarios: SimScenario[];
   /** Newest first; stations receive at most LOG_WINDOW entries, the server keeps all of them */
@@ -41,7 +45,7 @@ export interface SharedState {
 
 export const LOG_WINDOW = 500;
 
-export const COLLECTIONS = ['milestones', 'incidents', 'units', 'agencies', 'parkingLots', 'routes', 'scenarios'] as const;
+export const COLLECTIONS = ['milestones', 'incidents', 'units', 'agencies', 'parkingLots', 'worshipReports', 'buses', 'routes', 'scenarios'] as const;
 export type CollectionName = (typeof COLLECTIONS)[number];
 export type SingletonName = 'alertLevel' | 'mainFrequency' | 'shift' | 'hqName';
 
@@ -63,6 +67,10 @@ export type AgencyPatch = Partial<AgencyFields>;
 export type TaskPatch = Partial<Pick<MilestoneTask, 'text' | 'done'>>;
 export type ParkingFields = Pick<ParkingLot, 'name' | 'status' | 'capacity' | 'occupied' | 'note'>;
 export type ParkingPatch = Partial<ParkingFields & Pick<ParkingLot, 'mapPos'>>;
+export type WorshipFields = Pick<WorshipReport, 'time' | 'count' | 'note'>;
+export type WorshipPatch = Partial<WorshipFields>;
+export type BusFields = Pick<BusTrip, 'number' | 'route' | 'status' | 'passengers' | 'departure' | 'note'>;
+export type BusPatch = Partial<BusFields>;
 export type RouteFields = Pick<TacticalRoute, 'name' | 'status' | 'note'>;
 export type RoutePatch = Partial<RouteFields>;
 export type ScenarioFields = Pick<SimScenario, 'name' | 'description'>;
@@ -89,6 +97,12 @@ export type Action =
   | { type: 'parking.add'; fields: ParkingFields }
   | { type: 'parking.update'; id: string; patch: ParkingPatch }
   | { type: 'parking.delete'; id: string }
+  | { type: 'worship.add'; fields: WorshipFields }
+  | { type: 'worship.update'; id: string; patch: WorshipPatch }
+  | { type: 'worship.delete'; id: string }
+  | { type: 'bus.add'; fields: BusFields }
+  | { type: 'bus.update'; id: string; patch: BusPatch }
+  | { type: 'bus.delete'; id: string }
   | { type: 'route.add'; fields: RouteFields }
   | { type: 'route.update'; id: string; patch: RoutePatch }
   | { type: 'route.delete'; id: string }
