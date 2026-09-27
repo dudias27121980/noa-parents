@@ -349,6 +349,7 @@ function Dashboard({
             {/* Target Clocks & C2 Fast Controls (left column) */}
             <div className="w-full shrink-0 xl:order-last xl:w-80">
               <RadarControls
+                units={units}
                 onToggleFullscreen={toggleFullscreen}
                 isFullscreen={isFullscreen}
                 onOpenSimModal={() => setIsSimModalOpen(true)}

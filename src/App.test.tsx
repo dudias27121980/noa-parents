@@ -594,6 +594,26 @@ describe('everything is editable', () => {
     expect(tile(b)).toHaveTextContent('סה"כ 110 נוסעים · 1 בדרך');
   });
 
+  it('the sector radar shows the real forces around the HQ, in their status, and follows a move on the map', async () => {
+    const { q, store } = await openStation();
+    const units = server.core.getState().units;
+    const blips = () => [...document.querySelectorAll('[data-blip]')] as HTMLElement[];
+    // Every force but the HQ (at the centre) has a dot, named and coloured by its status
+    expect(blips()).toHaveLength(units.length - 1);
+    expect(q.getByRole('img', { name: 'חפ"ק - נשר 1' })).toBeInTheDocument();
+    const offline = units.find((u) => u.status === 'offline')!;
+    // (Out of range: a hollow ring on the rim, still in its status colour)
+    expect(q.getByRole('img', { name: new RegExp(`^${offline.callSign} - אין קשר`) }).className).toMatch(/(bg|border)-red-500/);
+
+    const target = units.find((u) => u.callSign === 'סיור 21')!;
+    const dot = () => document.querySelector(`[data-blip="${target.id}"]`) as HTMLElement;
+    const before = dot().style.left;
+    await store.dispatch({ type: 'unit.update', id: target.id, patch: { x: 20, y: target.y } });
+    await waitFor(() => expect(dot().style.left).not.toBe(before));
+    // Moved west on the map: further left on the radar
+    expect(parseFloat(dot().style.left)).toBeLessThan(parseFloat(before));
+  });
+
   it('drill scenarios can be added and triggered', async () => {
     const { user, q } = await openStation();
     await user.click(q.getByRole('button', { name: /הפעלת תרגיל קיצון/ }));
