@@ -27,6 +27,8 @@ interface Props {
   stations: StationInfo[];
   connection: ConnectionStatus;
   onLogout: () => void;
+  /** Wall display: nothing in the header can be edited */
+  readOnly?: boolean;
 }
 
 const alertStyle = (level: AlertLevel) => {
@@ -61,6 +63,7 @@ export function HeaderNav({
   stations,
   connection,
   onLogout,
+  readOnly = false,
 }: Props) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -78,8 +81,19 @@ export function HeaderNav({
             <Shield size={20} />
           </div>
           <div className="leading-tight">
-            <HqName name={hqName} onChange={onHqNameChange} />
-            <ShiftLine commanderName={commanderName} shiftName={shiftName} onChange={onShiftChange} />
+            {readOnly ? (
+              <>
+                <div className="text-sm font-extrabold tracking-wide text-slate-100">{hqName}</div>
+                <div className="text-[11px] text-slate-400">
+                  משמרת {shiftName} · מפקד: {commanderName}
+                </div>
+              </>
+            ) : (
+              <>
+                <HqName name={hqName} onChange={onHqNameChange} />
+                <ShiftLine commanderName={commanderName} shiftName={shiftName} onChange={onShiftChange} />
+              </>
+            )}
           </div>
         </div>
 
@@ -110,6 +124,7 @@ export function HeaderNav({
 
         <div className="ms-auto flex items-center gap-2">
           <select
+            disabled={readOnly}
             value={alertLevel}
             onChange={(e) => {
               click();
@@ -125,6 +140,11 @@ export function HeaderNav({
             ))}
           </select>
 
+          {readOnly && (
+            <span className="rounded border border-violet-400/60 bg-violet-500/15 px-2 py-1 text-xs font-bold text-violet-200">
+              עמדת תצוגה · קריאה בלבד
+            </span>
+          )}
           <StationsIndicator station={station} stations={stations} connection={connection} />
 
           <div className="hidden rounded border border-slate-700 px-2 py-1 font-mono text-sm text-cyan-200 sm:block" dir="ltr">
@@ -235,7 +255,9 @@ function StationsIndicator({
   connection: ConnectionStatus;
 }) {
   const online = connection === 'online';
-  const list = stations.map((s) => (s.connections > 1 ? `${s.name} (${s.connections})` : s.name)).join('\n');
+  const list = stations
+    .map((s) => `${s.name}${s.display ? ' (תצוגה)' : ''}${s.connections > 1 ? ` ×${s.connections}` : ''}`)
+    .join('\n');
   return (
     <div
       className="flex items-center gap-1.5 rounded border border-slate-700 px-2 py-1 text-xs text-slate-300"

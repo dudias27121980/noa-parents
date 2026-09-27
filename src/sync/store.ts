@@ -19,6 +19,8 @@ export interface StoreView {
   stations: StationInfo[];
   /** This station's name as the server knows it */
   you: string | null;
+  /** Wall display: the server refuses every change from this connection */
+  readOnly: boolean;
 }
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -31,7 +33,7 @@ export const OFFLINE_ERROR = 'אין חיבור לשרת - השינוי לא נ�
  * sent to it, and the state only changes when the server's patch comes back (to every station).
  */
 export class SharedStore {
-  private view: StoreView = { state: null, status: 'connecting', stations: [], you: null };
+  private view: StoreView = { state: null, status: 'connecting', stations: [], you: null, readOnly: false };
   private listeners = new Set<() => void>();
   private noticeListeners = new Set<(n: Notice) => void>();
   private transport: Transport | null = null;
@@ -96,7 +98,7 @@ export class SharedStore {
     switch (msg.t) {
       case 'snapshot':
         this.backoff = 1000;
-        this.update({ state: msg.state, stations: msg.stations, you: msg.you, status: 'online' });
+        this.update({ state: msg.state, stations: msg.stations, you: msg.you, readOnly: msg.readOnly, status: 'online' });
         break;
       case 'patch':
         if (this.view.state) this.update({ state: applyPatch(this.view.state, msg.patch) });

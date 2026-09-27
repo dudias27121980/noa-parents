@@ -5,6 +5,8 @@ const LAST_STATION = 'tactical-ops:last-station';
 export interface Session {
   token: string;
   station: string;
+  /** Read-only wall display (long-lived login) */
+  display?: boolean;
 }
 
 export const loadSession = (): Session | null => {
@@ -41,15 +43,21 @@ export const lastStationName = () => {
   }
 };
 
-export async function login(station: string, code: string): Promise<{ ok: true; session: Session } | { ok: false; error: string }> {
+export async function login(
+  station: string,
+  code: string,
+  display = false
+): Promise<{ ok: true; session: Session } | { ok: false; error: string }> {
   try {
     const res = await fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ station, code }),
+      body: JSON.stringify({ station, code, display }),
     });
-    const body = (await res.json().catch(() => ({}))) as { token?: string; station?: string; error?: string };
-    if (res.ok && body.token && body.station) return { ok: true, session: { token: body.token, station: body.station } };
+    const body = (await res.json().catch(() => ({}))) as { token?: string; station?: string; display?: boolean; error?: string };
+    if (res.ok && body.token && body.station) {
+      return { ok: true, session: { token: body.token, station: body.station, display: body.display === true } };
+    }
     return { ok: false, error: body.error ?? 'הכניסה נכשלה' };
   } catch {
     return { ok: false, error: 'אין חיבור לשרת' };

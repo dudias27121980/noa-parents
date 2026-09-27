@@ -16,6 +16,12 @@ body {
   scrollbar-color: #1e3a5f transparent;
 }
 
+/* Wall display: hide controls that only make sense at a working station */
+main[data-readonly] [data-edit-control],
+main[data-readonly] .edit-control-panel {
+  display: none;
+}
+
 .tactical-grid {
   background-image:
     linear-gradient(rgba(34, 211, 238, 0.06) 1px, transparent 1px),

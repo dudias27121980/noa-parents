@@ -165,6 +165,29 @@ describe('live sync over WebSocket', () => {
     expect(result.t === 'result' && result.result).toEqual({ ok: true });
   });
 
+  it('a wall display receives everything but the server refuses its changes', async () => {
+    const { url, port } = await start();
+    const res = await fetch(`${url}/api/login`, {
+      method: 'POST',
+      body: JSON.stringify({ station: 'מסך קיר', code: 'code-4321', display: true }),
+    });
+    const { token, display } = (await res.json()) as { token: string; display: boolean };
+    expect(display).toBe(true);
+
+    const wall = connect(port, token);
+    const snap = await wall.next((m) => m.t === 'snapshot');
+    expect(snap.t === 'snapshot' && snap.readOnly).toBe(true);
+    wall.ws.send(JSON.stringify({ t: 'action', reqId: 1, action: { type: 'frequency.set', frequency: '9999' } }));
+    const result = await wall.next((m) => m.t === 'result');
+    expect(result.t === 'result' && result.result).toEqual({ ok: false, error: 'עמדת תצוגה - קריאה בלבד' });
+
+    const a = connect(port, await tokenFor(url, 'עמדה א'));
+    await a.next((m) => m.t === 'snapshot');
+    a.ws.send(JSON.stringify({ t: 'action', reqId: 1, action: { type: 'frequency.set', frequency: '2750' } }));
+    const patch = await wall.next((m) => m.t === 'patch');
+    expect(patch.t === 'patch' && patch.patch.set?.mainFrequency).toBe('2750');
+  });
+
   it('ignores malformed messages without dropping the connection', async () => {
     const { url, port } = await start();
     const a = connect(port, await tokenFor(url, 'עמדה א'));

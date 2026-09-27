@@ -115,6 +115,8 @@ export interface StatePatch {
 
 export interface StationInfo {
   name: string;
+  /** A read-only wall display rather than a working station */
+  display: boolean;
   /** Open connections (the same station may have more than one tab) */
   connections: number;
 }
@@ -129,7 +131,7 @@ export interface Notice {
 export type ClientMessage = { t: 'action'; reqId: number; action: Action };
 
 export type ServerMessage =
-  | { t: 'snapshot'; state: SharedState; stations: StationInfo[]; you: string }
+  | { t: 'snapshot'; state: SharedState; stations: StationInfo[]; you: string; readOnly: boolean }
   | { t: 'patch'; patch: StatePatch }
   | { t: 'result'; reqId: number; result: ActionResult }
   | { t: 'presence'; stations: StationInfo[] }

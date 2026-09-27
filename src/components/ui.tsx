@@ -204,6 +204,7 @@ export function AddTile({ label, onClick, disabled = false }: { label: string; o
       type="button"
       onClick={onClick}
       disabled={disabled}
+      data-edit-control
       className="flex min-h-[3.5rem] w-full items-center justify-center gap-2 rounded border-2 border-dashed border-cyan-800/70 p-3 text-sm font-bold text-cyan-300/80 transition hover:border-cyan-500 hover:bg-cyan-500/5 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"
     >
       <Plus size={18} /> {label}

@@ -5,10 +5,12 @@ import { LoginScreen } from './components/LoginScreen';
 import { SharedStore } from './sync/store';
 import { webSocketTransport } from './sync/transport';
 import { Session, clearSession, loadSession, saveSession } from './sync/session';
+import { useKeepAlive } from './sync/keepAlive';
 import './index.css';
 
 /** Login first; then one live connection to the shared server for as long as the session is valid */
 function Root() {
+  useKeepAlive();
   const [session, setSession] = useState<Session | null>(loadSession);
   const [store, setStore] = useState<SharedStore | null>(null);
   const [message, setMessage] = useState<string | null>(null);

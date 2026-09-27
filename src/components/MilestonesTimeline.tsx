@@ -168,6 +168,7 @@ export function MilestonesTimeline({
                     <span className="w-9 font-mono text-[11px] text-slate-300">{progress}%</span>
                     {m.statusType === 'active' && (
                       <button
+                        data-edit-control
                         onClick={() => onAdvanceMilestone(m.id)}
                         onDoubleClick={(e) => e.stopPropagation()}
                         className="flex items-center gap-1 rounded border border-emerald-500/60 bg-emerald-500/10 px-2 py-1 text-[11px] font-bold text-emerald-200 hover:bg-emerald-500/20"

@@ -25,13 +25,14 @@ export function createTestServer(now?: () => Date) {
   };
 
   const connect =
-    (station: string): TransportFactory =>
+    (station: string, { readOnly = false } = {}): TransportFactory =>
     (h) => {
       const pipe = {
         h,
         open: true,
         conn: {
           station,
+          readOnly,
           send: (msg) => {
             const copy = wire(msg);
             queueMicrotask(() => pipe.open && h.onMessage(copy));

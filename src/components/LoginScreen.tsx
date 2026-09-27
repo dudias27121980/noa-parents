@@ -8,13 +8,14 @@ export function LoginScreen({ onLogin, message }: { onLogin: (s: Session) => voi
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [display, setDisplay] = useState(false);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!station.trim() || !code || busy) return;
     setBusy(true);
     setError(null);
-    const res = await login(station.trim(), code);
+    const res = await login(station.trim(), code, display);
     setBusy(false);
     if (res.ok) onLogin(res.session);
     else {
@@ -65,6 +66,14 @@ export function LoginScreen({ onLogin, message }: { onLogin: (s: Session) => voi
             autoComplete="current-password"
             required
           />
+        </label>
+
+        <label className="mb-4 flex cursor-pointer items-start gap-2 rounded border border-slate-800 bg-black/20 p-2 text-xs text-slate-300">
+          <input type="checkbox" className="mt-0.5 accent-cyan-500" checked={display} onChange={(e) => setDisplay(e.target.checked)} />
+          <span>
+            <span className="font-bold">עמדת תצוגה (מסך קיר)</span>
+            <span className="block text-slate-500">קריאה בלבד, ונשארת מחוברת 30 יום בלי להתחבר מחדש</span>
+          </span>
         </label>
 
         {error && (

@@ -76,7 +76,7 @@ export function RadarControls({
         </div>
       </Panel>
 
-      <Panel title="שליטה מהירה" icon={<Zap size={16} />}>
+      <Panel title="שליטה מהירה" icon={<Zap size={16} />} className="edit-control-panel">
         <div className="grid grid-cols-1 gap-2">
           <ControlButton onClick={withClick(onOpenSimModal)} tone="red" icon={<Zap size={14} />}>
             הפעלת תרגיל קיצון
