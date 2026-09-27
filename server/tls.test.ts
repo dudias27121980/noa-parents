@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { createServer } from './app';
-import { createCa, createServerCert, describeCert } from './tls';
+import { createCa, createServerCert, describeCert, serial } from './tls';
 
 const ca = createCa();
 const leaf = createServerCert(ca, ['localhost', '127.0.0.1', '192.168.1.20', 'hq.local']);
@@ -41,10 +41,17 @@ describe('certificates', () => {
   });
 
   it('uses minimal DER serial numbers (a leading zero byte makes Chrome reject the certificate)', () => {
-    for (let i = 0; i < 40; i++) {
-      const serial = new X509Certificate(createServerCert(ca, ['localhost']).certPem).serialNumber;
-      expect(serial.length).toBe(32);
-      expect(serial.startsWith('0')).toBe(false);
+    // The generator itself, many times over (fast: no key generation)
+    for (let i = 0; i < 5000; i++) {
+      const first = parseInt(serial().slice(0, 2), 16);
+      expect(first).toBeGreaterThanOrEqual(0x40);
+      expect(first).toBeLessThanOrEqual(0x7f);
+    }
+    // And as it lands in a real certificate
+    for (const pem of [ca.certPem, leaf.certPem]) {
+      const s = new X509Certificate(pem).serialNumber;
+      expect(s.length).toBe(32);
+      expect(s.startsWith('0')).toBe(false);
     }
   });
 
