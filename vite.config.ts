@@ -53,7 +53,7 @@ export default defineConfig({
     // One file by design: everything, including the radar image, is inside it
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
-      output: { inlineDynamicImports: true },
+      output: { codeSplitting: false },
     },
   },
 });
