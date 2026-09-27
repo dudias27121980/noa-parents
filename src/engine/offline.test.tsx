@@ -2,28 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MAX_STORED_LOGS, STORAGE_KEY, openBrowserDb } from './browserDb';
 import { OFFLINE_STATION, createLocalServer } from './localServer';
-import { BackupButtons, backupFileName } from './BackupButtons';
+import { BackupButtons, backupFileName } from '../components/BackupButtons';
 import { SharedStore } from '../sync/store';
 import { LogEntry } from '../types/tactical';
-
-/** A fresh in-memory stand-in for the browser's localStorage */
-function memoryStorage(): Storage & { failWrites: boolean } {
-  const m = new Map<string, string>();
-  return {
-    failWrites: false,
-    get length() {
-      return m.size;
-    },
-    clear: () => m.clear(),
-    getItem: (k) => m.get(k) ?? null,
-    key: (i) => [...m.keys()][i] ?? null,
-    removeItem: (k) => void m.delete(k),
-    setItem(k, v) {
-      if (this.failWrites) throw new DOMException('full', 'QuotaExceededError');
-      m.set(k, v);
-    },
-  };
-}
+import { memoryStorage } from '../test/memoryStorage';
 
 const stores: SharedStore[] = [];
 const stops: (() => void)[] = [];

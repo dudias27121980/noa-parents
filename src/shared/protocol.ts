@@ -128,20 +128,15 @@ export interface Notice {
   from: string;
 }
 
-/** `hello` opens every connection: the server sends nothing before it (see server/app.ts) */
-export type ClientMessage = { t: 'hello' } | { t: 'action'; reqId: number; action: Action };
+export type ClientMessage = { t: 'action'; reqId: number; action: Action };
 
 export type ServerMessage =
   | { t: 'snapshot'; state: SharedState; stations: StationInfo[]; you: string; readOnly: boolean }
   | { t: 'patch'; patch: StatePatch }
   | { t: 'result'; reqId: number; result: ActionResult }
   | { t: 'presence'; stations: StationInfo[] }
-  | { t: 'notice'; notice: Notice }
-  /** The token was refused: log in again. Sent as a message too, because a proxy can swallow the close code */
-  | { t: 'unauthorized' };
+  | { t: 'notice'; notice: Notice };
 
-/** WebSocket close codes the client acts on */
-export const CLOSE_UNAUTHORIZED = 4001;
 
 export const applyPatch = (state: SharedState, patch: StatePatch): SharedState => {
   const next: SharedState = { ...state, ...patch.set };

@@ -1,21 +1,14 @@
-// @vitest-environment node
-import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { openDb } from './db';
+import { describe, expect, it } from 'vitest';
+import { openBrowserDb } from './browserDb';
 import { createCore } from './core';
-import { clockTime } from '../src/utils/time';
+import { clockTime } from '../utils/time';
+import { memoryStorage } from '../test/memoryStorage';
 
 const NOW = new Date('2026-09-26T10:02:00+03:00');
 const now = () => NOW;
-const dirs: string[] = [];
-const tempDb = () => {
-  const dir = mkdtempSync(join(tmpdir(), 'tactical-'));
-  dirs.push(dir);
-  return join(dir, 'test.db');
-};
-afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
+/** Storage that outlives a core: open it again to simulate closing and reopening the file */
+const tempDb = () => memoryStorage();
+const openDb = (storage: Storage | ':memory:') => openBrowserDb(storage === ':memory:' ? memoryStorage() : storage);
 
 const memCore = () => createCore({ db: openDb(':memory:'), now });
 

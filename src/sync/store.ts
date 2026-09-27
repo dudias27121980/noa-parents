@@ -1,7 +1,6 @@
 import {
   Action,
   ActionResult,
-  CLOSE_UNAUTHORIZED,
   Notice,
   ServerMessage,
   SharedState,
@@ -10,7 +9,7 @@ import {
 } from '../shared/protocol';
 import { Transport, TransportFactory } from './transport';
 
-export type ConnectionStatus = 'connecting' | 'online' | 'offline' | 'unauthorized';
+export type ConnectionStatus = 'connecting' | 'online' | 'offline';
 
 export interface StoreView {
   /** null until the first snapshot arrives */
@@ -72,14 +71,10 @@ export class SharedStore {
       onMessage: (msg) => {
         if (this.transport === t) this.receive(msg);
       },
-      onClose: (code) => {
+      onClose: () => {
         if (this.transport !== t) return; // an old connection we already replaced
         this.transport = null;
         this.failPending();
-        if (code === CLOSE_UNAUTHORIZED) {
-          this.refused();
-          return;
-        }
         this.update({ status: 'offline' });
         if (this.running) {
           this.retryTimer = setTimeout(() => {
@@ -117,23 +112,7 @@ export class SharedStore {
       case 'notice':
         this.noticeListeners.forEach((l) => l(msg.notice));
         break;
-      case 'unauthorized':
-        this.refused();
-        break;
     }
-  }
-
-  /** The server refused this login (or it was found invalid elsewhere): stop, and ask to log in again */
-  refused() {
-    if (this.view.status === 'unauthorized') return;
-    this.running = false;
-    if (this.retryTimer) clearTimeout(this.retryTimer);
-    this.retryTimer = null;
-    const t = this.transport;
-    this.transport = null;
-    t?.close();
-    this.failPending();
-    this.update({ status: 'unauthorized' });
   }
 
   private failPending() {

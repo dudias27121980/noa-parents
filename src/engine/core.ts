@@ -14,7 +14,7 @@ import {
   TacticalUnit,
   UnitStatus,
   UnitType,
-} from '../src/types/tactical';
+} from '../types/tactical';
 import {
   Action,
   ActionResult,
@@ -27,7 +27,7 @@ import {
   SingletonName,
   StatePatch,
   applyPatch,
-} from '../src/shared/protocol';
+} from '../shared/protocol';
 import {
   AGENCY_STATUS_LABEL,
   INCIDENT_STATUS_LABEL,
@@ -36,7 +36,7 @@ import {
   TIER_LABEL,
   UNIT_STATUS_LABEL,
   UNIT_TYPE_LABEL,
-} from '../src/shared/labels';
+} from '../shared/labels';
 import {
   DEFAULT_ALERT_LEVEL,
   DEFAULT_HQ_NAME,
@@ -50,11 +50,11 @@ import {
   INITIAL_PARKING_LOTS,
   buildDemoLogs,
   buildDemoMilestones,
-} from '../src/data/tacticalData';
-import { STATUS_BADGE, normalizeMilestones } from '../src/utils/schedule';
-import { clockTime, formatDate, isIsoDate, isoDate, parseHHMM } from '../src/utils/time';
-import { nextIdNumber } from '../src/utils/ids';
-import { changedFields } from '../src/shared/diff';
+} from '../data/tacticalData';
+import { STATUS_BADGE, normalizeMilestones } from '../utils/schedule';
+import { clockTime, formatDate, isIsoDate, isoDate, parseHHMM } from '../utils/time';
+import { nextIdNumber } from '../utils/ids';
+import { changedFields } from '../shared/diff';
 import type { Db } from './dbTypes';
 
 export interface Outcome {

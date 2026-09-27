@@ -1,6 +1,6 @@
 import { ChangeEvent, useRef } from 'react';
 import { Download, Upload } from 'lucide-react';
-import { OfflineDump, isDump } from './browserDb';
+import { OfflineDump, isDump } from '../engine/browserDb';
 
 const button = 'rounded border border-slate-700 p-1.5 text-slate-300 hover:bg-white/5';
 

@@ -30,15 +30,12 @@ jobs:
       - name: Tests
         run: npm test
 
-      - name: Build
+      - name: Build the file (one HTML file, no network)
         run: npx vite build
 
-      - name: Build the offline file (one HTML file, no network)
-        run: npx vite build --config vite.offline.config.ts
-
-      - name: Keep the offline file as a download
+      - name: Keep the file as a download
         uses: actions/upload-artifact@v4
         with:
-          name: offline-file
-          path: dist-offline/*.html
+          name: hq-dashboard-file
+          path: dist/*.html
           if-no-files-found: error

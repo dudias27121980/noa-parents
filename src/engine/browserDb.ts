@@ -1,4 +1,4 @@
-import type { Db, SingletonKey } from '../../server/dbTypes';
+import type { Db, SingletonKey } from './dbTypes';
 import { COLLECTIONS, CollectionName, LOG_WINDOW, SharedState } from '../shared/protocol';
 import { LogEntry } from '../types/tactical';
 

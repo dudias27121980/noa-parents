@@ -24,9 +24,7 @@
   },
   "include": [
     "src",
-    "server",
     "vite.config.ts",
-    "vite.offline.config.ts",
     "vitest.config.ts"
   ]
 }

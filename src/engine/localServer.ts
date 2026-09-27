@@ -1,6 +1,6 @@
-import { createCore } from '../../server/core';
-import { createHub, Conn } from '../../server/hub';
-import type { Db } from '../../server/dbTypes';
+import { createCore } from './core';
+import { createHub, Conn } from './hub';
+import type { Db } from './dbTypes';
 import { TransportFactory } from '../sync/transport';
 
 /** The station name the offline file acts under (shown in the log next to every change) */
