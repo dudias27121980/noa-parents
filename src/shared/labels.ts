@@ -1,4 +1,4 @@
-import { AgencyStatus, IncidentStatus, IncidentTier, UnitStatus, UnitType } from '../types/tactical';
+import { AgencyStatus, IncidentStatus, IncidentTier, LprHitStatus, RouteStatus, UnitStatus, UnitType } from '../types/tactical';
 
 // Hebrew labels shared by the UI and the server (which writes them into the operations log)
 
@@ -33,4 +33,15 @@ export const AGENCY_STATUS_LABEL: Record<AgencyStatus, string> = {
   connected: 'מחובר',
   degraded: 'תקשורת לקויה',
   disconnected: 'מנותק',
+};
+
+export const ROUTE_STATUS_LABEL: Record<RouteStatus, string> = {
+  open: 'פתוח',
+  partial: 'חסום חלקית',
+  closed: 'סגור',
+};
+
+export const LPR_STATUS_LABEL: Record<LprHitStatus, string> = {
+  open: 'פתוחה',
+  handled: 'טופלה',
 };

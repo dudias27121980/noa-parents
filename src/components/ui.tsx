@@ -1,5 +1,5 @@
-import { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect } from 'react';
-import { Save, X } from 'lucide-react';
+import { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, useEffect, useState } from 'react';
+import { Plus, Save, Trash2, X } from 'lucide-react';
 
 export function Panel({
   title,
@@ -170,5 +170,43 @@ export function InlineEditor({
         </div>
       </div>
     </form>
+  );
+}
+
+/** Delete with an inline "are you sure?" step (for the footer of an editor) */
+export function DeleteButton({ onConfirm, question = 'למחוק?' }: { onConfirm: () => void; question?: string }) {
+  const [confirming, setConfirming] = useState(false);
+  return confirming ? (
+    <span className="flex items-center gap-2 text-xs text-red-300">
+      {question}
+      <button type="button" onClick={onConfirm} className="rounded bg-red-600 px-2 py-1 font-bold text-white hover:bg-red-500">
+        מחק
+      </button>
+      <button type="button" onClick={() => setConfirming(false)} className="text-slate-400 hover:text-slate-200">
+        לא
+      </button>
+    </span>
+  ) : (
+    <button
+      type="button"
+      onClick={() => setConfirming(true)}
+      className="flex items-center gap-1 rounded px-2 py-1 text-xs text-red-300 hover:bg-red-500/10"
+    >
+      <Trash2 size={13} /> מחיקה
+    </button>
+  );
+}
+
+/** Dashed "+ add" tile at the end of a list or grid */
+export function AddTile({ label, onClick, disabled = false }: { label: string; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="flex min-h-[3.5rem] w-full items-center justify-center gap-2 rounded border-2 border-dashed border-cyan-800/70 p-3 text-sm font-bold text-cyan-300/80 transition hover:border-cyan-500 hover:bg-cyan-500/5 hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      <Plus size={18} /> {label}
+    </button>
   );
 }

@@ -1,4 +1,15 @@
-import { Agency, AlertLevel, KpiCard, LogEntry, Milestone, TacticalIncident, TacticalUnit } from '../types/tactical';
+import {
+  Agency,
+  AlertLevel,
+  KpiCard,
+  LogEntry,
+  LprHit,
+  Milestone,
+  SimScenario,
+  TacticalIncident,
+  TacticalRoute,
+  TacticalUnit,
+} from '../types/tactical';
 import { normalizeMilestones } from '../utils/schedule';
 import { hhmm, isoDate } from '../utils/time';
 
@@ -14,6 +25,9 @@ export const buildDemoMilestones = (loadTime: Date = new Date()): Milestone[] =>
     return { scheduledDate: isoDate(d), scheduledTime: hhmm(d) };
   };
 
+  const tasks = (msId: string, done: boolean, texts: string[]) =>
+    texts.map((text, i) => ({ id: `${msId}-T${i + 1}`, text, done }));
+
   return normalizeMilestones([
     {
       id: 'MS-01',
@@ -25,7 +39,7 @@ export const buildDemoMilestones = (loadTime: Date = new Date()): Milestone[] =>
       description: 'תדריך פתיחת משמרת, הצגת תמונת מצב מודיעינית וחלוקת גזרות אחריות.',
       statusType: 'completed',
       statusBadge: '',
-      tasks: ['הצגת תמונת מודיעין', 'חלוקת גזרות', 'אישור נהלי קשר'],
+      tasks: tasks('MS-01', true, ['הצגת תמונת מודיעין', 'חלוקת גזרות', 'אישור נהלי קשר']),
     },
     {
       id: 'MS-02',
@@ -37,7 +51,7 @@ export const buildDemoMilestones = (loadTime: Date = new Date()): Milestone[] =>
       description: 'הצבת מחסומים ניידים בצומתי מפתח לאורך ציר 60 וציר 35, כולל מצלמות LPR.',
       statusType: 'completed',
       statusBadge: '',
-      tasks: ['מחסום צומת הגוש', 'מחסום כניסה צפונית', 'חיבור מצלמות LPR'],
+      tasks: tasks('MS-02', true, ['מחסום צומת הגוש', 'מחסום כניסה צפונית', 'חיבור מצלמות LPR']),
     },
     {
       id: 'MS-03',
@@ -49,7 +63,10 @@ export const buildDemoMilestones = (loadTime: Date = new Date()): Milestone[] =>
       description: 'סריקה בגזרה המזרחית בליווי רחפן תרמי. דיווח מצב כל 10 דקות לחפ"ק.',
       statusType: 'active',
       statusBadge: '',
-      tasks: ['כניסה לגזרה', 'סריקת מבנים 1-12', 'סריקת מבנים 13-24', 'יציאה ודיווח'],
+      // Active phase: the first task is already done
+      tasks: tasks('MS-03', false, ['כניסה לגזרה', 'סריקת מבנים 1-12', 'סריקת מבנים 13-24', 'יציאה ודיווח']).map((t, i) =>
+        i === 0 ? { ...t, done: true } : t
+      ),
     },
     {
       id: 'MS-04',
@@ -61,7 +78,7 @@ export const buildDemoMilestones = (loadTime: Date = new Date()): Milestone[] =>
       description: 'החלפת כוחות הסיור במחסומים, תדלוק ורענון ציוד.',
       statusType: 'next',
       statusBadge: '',
-      tasks: ['תיאום זמני החלפה', 'תדלוק רכבים', 'העברת מקל'],
+      tasks: tasks('MS-04', false, ['תיאום זמני החלפה', 'תדלוק רכבים', 'העברת מקל']),
     },
     {
       id: 'MS-05',
@@ -73,7 +90,7 @@ export const buildDemoMilestones = (loadTime: Date = new Date()): Milestone[] =>
       description: 'סיכום ביניים של הפעילות, הפקת לקחים ראשוניים ועדכון דרג ממונה.',
       statusType: 'scheduled',
       statusBadge: '',
-      tasks: ['איסוף דיווחים', 'תחקיר חם', 'דיווח לדרג ממונה'],
+      tasks: tasks('MS-05', false, ['איסוף דיווחים', 'תחקיר חם', 'דיווח לדרג ממונה']),
     },
   ]);
 };
@@ -349,7 +366,7 @@ export const buildDemoLogs = (date: string = isoDate()): LogEntry[] => [
   },
 ];
 
-export const SIM_SCENARIOS = [
+export const INITIAL_SCENARIOS: SimScenario[] = [
   {
     id: 'SIM-A',
     name: 'פיגוע דריסה בצומת',
@@ -365,7 +382,7 @@ export const SIM_SCENARIOS = [
     name: 'חדירת מחבל ליישוב',
     description: 'התרעה על חדירה בגדר המערכת. הקפצת כיתת כוננות, יס"מ ורחפן תרמי.',
   },
-] as const;
+];
 
 /** Main command net — 4-digit radio frequency */
 export const DEFAULT_MAIN_FREQUENCY = '1480';
@@ -373,3 +390,20 @@ export const DEFAULT_MAIN_FREQUENCY = '1480';
 export const DEFAULT_SHIFT = { commanderName: 'נצ"מ כהן', shiftName: "ב'" };
 
 export const DEFAULT_ALERT_LEVEL: AlertLevel = 'כוננות ג׳ - מצב מבצעי מוגבר';
+
+export const DEFAULT_HQ_NAME = 'חפ"ק מרחב יהודה';
+
+export const buildDemoLprHits = (date: string = isoDate()): LprHit[] => [
+  { id: 'LPR-3', date, time: '07:02:14', camera: 'LPR-60-12 צומת הגוש', plate: '12-345-67', vehicle: 'מאזדה 3 לבנה', reason: 'רשימת מעקב', status: 'open' },
+  { id: 'LPR-2', date, time: '06:57:40', camera: 'LPR-60-09 כניסה צפונית', plate: '12-345-67', vehicle: 'מאזדה 3 לבנה', reason: 'רשימת מעקב', status: 'open' },
+  { id: 'LPR-1', date, time: '06:41:03', camera: 'LPR-35-02 מחסום 300', plate: '89-012-34', vehicle: 'טנדר איסוזו כסוף', reason: 'רכב גנוב', status: 'open' },
+];
+
+export const INITIAL_ROUTES: TacticalRoute[] = [
+  { id: 'R-60', name: 'ציר 60', status: 'open', note: '' },
+  { id: 'R-35', name: 'ציר 35', status: 'partial', note: 'מחסום 300 - נתיב אחד סגור' },
+  { id: 'R-356', name: 'ציר 356', status: 'open', note: '' },
+  { id: 'R-317', name: 'ציר 317', status: 'open', note: '' },
+  { id: 'R-3698', name: 'כביש 3698', status: 'open', note: '' },
+  { id: 'R-367', name: 'ציר 367', status: 'open', note: '' },
+];

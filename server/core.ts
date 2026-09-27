@@ -4,15 +4,20 @@ import {
   IncidentStatus,
   LogEntry,
   LogSeverity,
+  LprHit,
   Milestone,
   MilestoneStatus,
+  MilestoneTask,
+  RouteStatus,
   TacticalIncident,
+  TacticalUnit,
   UnitStatus,
   UnitType,
 } from '../src/types/tactical';
 import {
   Action,
   ActionResult,
+  COLLECTIONS,
   CollectionName,
   MilestoneFields,
   Notice,
@@ -24,17 +29,22 @@ import {
 import {
   AGENCY_STATUS_LABEL,
   INCIDENT_STATUS_LABEL,
+  ROUTE_STATUS_LABEL,
   TIER_LABEL,
   UNIT_STATUS_LABEL,
   UNIT_TYPE_LABEL,
 } from '../src/shared/labels';
 import {
   DEFAULT_ALERT_LEVEL,
+  DEFAULT_HQ_NAME,
   DEFAULT_MAIN_FREQUENCY,
   DEFAULT_SHIFT,
   INITIAL_AGENCIES,
+  INITIAL_ROUTES,
+  INITIAL_SCENARIOS,
   INITIAL_UNITS,
   buildDemoIncidents,
+  buildDemoLprHits,
   buildDemoLogs,
   buildDemoMilestones,
 } from '../src/data/tacticalData';
@@ -121,6 +131,14 @@ class Tx {
     this.patch.upsert = { ...this.patch.upsert, [name]: [...byId.values()] };
   }
 
+  remove(name: Exclude<CollectionName, 'milestones'>, ids: string[]) {
+    this.state = applyPatch(this.state, { remove: { [name]: ids } });
+    this.patch.remove = { ...this.patch.remove, [name]: [...(this.patch.remove?.[name] ?? []), ...ids] };
+    // A record created and deleted in the same action must not be re-sent
+    const up = this.patch.upsert?.[name] as { id: string }[] | undefined;
+    if (up) this.patch.upsert = { ...this.patch.upsert, [name]: up.filter((r) => !ids.includes(r.id)) };
+  }
+
   /** Milestones are always sent whole: normalizing can re-order rows and change several statuses */
   setMilestones(list: Milestone[]) {
     const next = normalizeMilestones(list);
@@ -150,6 +168,32 @@ class Tx {
   }
 }
 
+/* ---------- schema ---------- */
+
+/** 1: first shared server. 2: tasks as {id,text,done}; LPR alerts, routes, drill scenarios, HQ name */
+const SCHEMA_VERSION = 2;
+
+/** Upgrades a database from the previous version in place, keeping everything already entered */
+const migrateToV2 = (s: SharedState, fresh: SharedState): SharedState => ({
+  ...s,
+  milestones: s.milestones.map((m) => ({
+    ...m,
+    tasks: (m.tasks as unknown[]).map((t, i): MilestoneTask =>
+      typeof t === 'string' ? { id: `${m.id}-T${i + 1}`, text: t, done: m.statusType === 'completed' } : (t as MilestoneTask)
+    ),
+  })),
+  lprHits: s.lprHits?.length ? s.lprHits : fresh.lprHits,
+  routes: s.routes?.length ? s.routes : fresh.routes,
+  scenarios: s.scenarios?.length ? s.scenarios : fresh.scenarios,
+  hqName: s.hqName || fresh.hqName,
+});
+
+const LPR_STATUSES = ['open', 'handled'] as const;
+const ROUTE_STATUSES: readonly RouteStatus[] = ['open', 'partial', 'closed'];
+
+const coord = (v: unknown, field: string) =>
+  typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100 ? Math.round(v * 10) / 10 : fail(`מיקום לא תקין: ${field}`);
+
 /* ---------- core ---------- */
 
 export function createCore({ db, now = () => new Date() }: { db: Db; now?: () => Date }) {
@@ -160,19 +204,25 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
       incidents: buildDemoIncidents(isoDate(t)),
       units: INITIAL_UNITS,
       agencies: INITIAL_AGENCIES,
+      lprHits: buildDemoLprHits(isoDate(t)),
+      routes: INITIAL_ROUTES,
+      scenarios: INITIAL_SCENARIOS,
       logs: buildDemoLogs(isoDate(t)),
       alertLevel: DEFAULT_ALERT_LEVEL,
       mainFrequency: DEFAULT_MAIN_FREQUENCY,
       shift: DEFAULT_SHIFT,
+      hqName: DEFAULT_HQ_NAME,
     };
   };
 
   const writeAll = (s: SharedState) =>
     db.transaction(() => {
-      (['milestones', 'incidents', 'units', 'agencies'] as const).forEach((c) => db.replaceCollection(c, s[c]));
+      COLLECTIONS.forEach((c) => db.replaceCollection(c, s[c]));
       db.setSingleton('alertLevel', s.alertLevel);
       db.setSingleton('mainFrequency', s.mainFrequency);
       db.setSingleton('shift', s.shift);
+      db.setSingleton('hqName', s.hqName);
+      db.setSingleton('schemaVersion', SCHEMA_VERSION);
       db.clearLogs();
       db.appendLogs(s.logs);
     });
@@ -181,18 +231,38 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
   if (!state) {
     state = seed();
     writeAll(state);
+  } else if ((db.getSingleton<number>('schemaVersion') ?? 1) < SCHEMA_VERSION) {
+    state = migrateToV2(state, seed());
+    const migrated = state;
+    db.transaction(() => {
+      db.replaceCollection('milestones', migrated.milestones);
+      (['lprHits', 'routes', 'scenarios'] as const).forEach((c) => db.replaceCollection(c, migrated[c]));
+      db.setSingleton('hqName', migrated.hqName);
+      db.setSingleton('schemaVersion', SCHEMA_VERSION);
+    });
   }
 
   // Ids are allocated here, by the one server, so two stations can never create the same number
   let incidentSeq = nextIdNumber(state.incidents.map((i) => i.id), 7300);
   let milestoneSeq = nextIdNumber(state.milestones.map((m) => m.id), 100);
+  // Other collections: never reuse the number of a deleted record (a station may still have it open)
+  const seqs = {} as Record<'units' | 'agencies' | 'lprHits' | 'routes' | 'scenarios', number>;
+  const resetSeqs = () => {
+    seqs.units = nextIdNumber(state!.units.map((r) => r.id), 10);
+    seqs.agencies = nextIdNumber(state!.agencies.map((r) => r.id), 10);
+    seqs.lprHits = nextIdNumber(state!.lprHits.map((r) => r.id), 10);
+    seqs.routes = nextIdNumber(state!.routes.map((r) => r.id), 1000);
+    seqs.scenarios = nextIdNumber(state!.scenarios.map((r) => r.id), 10);
+  };
+  resetSeqs();
+  const newId = (c: keyof typeof seqs, prefix: string) => `${prefix}-${seqs[c]++}`;
   let logSeq = Math.max(db.maxLogNumber() + 1, nextIdNumber(state.logs.map((l) => l.id), 500));
   const nextLogId = () => `LOG-${String(logSeq++).padStart(4, '0')}`;
 
   const commit = (tx: Tx) => {
     const { patch } = tx;
     db.transaction(() => {
-      (['incidents', 'units', 'agencies'] as const).forEach((c) => {
+      COLLECTIONS.filter((c) => c !== 'milestones').forEach((c) => {
         if (patch.upsert?.[c]?.length) db.upsert(c, patch.upsert[c]!);
         if (patch.remove?.[c]?.length) db.remove(c, patch.remove[c]!);
       });
@@ -335,10 +405,18 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
       if ('commander' in raw) clean.commander = str(raw.commander, 'מפקד', { max: 60 });
       if ('personnel' in raw) clean.personnel = int(raw.personnel, 0, 999, 'לוחמים');
       if ('sector' in raw) clean.sector = str(raw.sector, 'גזרה', { max: 100 });
+      if ('x' in raw) clean.x = coord(raw.x, 'x');
+      if ('y' in raw) clean.y = coord(raw.y, 'y');
       const patch = changedFields(target, clean);
       if (Object.keys(patch).length === 0) return;
 
       const next = { ...target, ...patch };
+      // Moving a unit on the map is routine telemetry: broadcast, but keep it out of the log
+      const onlyMoved = Object.keys(patch).every((k) => k === 'x' || k === 'y');
+      if (onlyMoved) {
+        tx.upsert('units', [next]);
+        return;
+      }
       // Signal follows the radio link: none when offline, a fresh reading when it comes back
       if (next.status === 'offline') next.signalStrength = 0;
       else if (target.status === 'offline') next.signalStrength = 85;
@@ -394,6 +472,229 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
         'תיאום גורמי חוץ',
         `עריכת גורם חוץ ${next.name}${notes.length ? ` (${notes.join(', ')})` : ''}`
       );
+    },
+
+    'task.add'(tx, a) {
+      const ms = tx.state.milestones.find((m) => m.id === a.milestoneId) ?? fail(NOT_FOUND);
+      const task: MilestoneTask = {
+        id: `${ms.id}-T${nextIdNumber(ms.tasks.map((t) => t.id), 1)}`,
+        text: str(a.text, 'משימה', { required: true, max: 200 }),
+        done: false,
+      };
+      tx.setMilestones(tx.state.milestones.map((m) => (m.id === ms.id ? { ...m, tasks: [...m.tasks, task] } : m)));
+      tx.log('NOMINAL', MS_SOURCE, `משימה נוספה ל-${ms.code} "${ms.title}": ${task.text}`);
+      return task.id;
+    },
+
+    'task.update'(tx, a) {
+      const ms = tx.state.milestones.find((m) => m.id === a.milestoneId) ?? fail(NOT_FOUND);
+      const task = ms.tasks.find((t) => t.id === a.taskId) ?? fail(NOT_FOUND);
+      const raw = obj(a.patch, 'שינויים');
+      const clean: Partial<MilestoneTask> = {};
+      if ('text' in raw) clean.text = str(raw.text, 'משימה', { required: true, max: 200 });
+      if ('done' in raw) clean.done = typeof raw.done === 'boolean' ? raw.done : fail('ערך לא תקין: בוצע');
+      const patch = changedFields(task, clean);
+      if (Object.keys(patch).length === 0) return;
+      const next = { ...task, ...patch };
+      tx.setMilestones(
+        tx.state.milestones.map((m) => (m.id === ms.id ? { ...m, tasks: m.tasks.map((t) => (t.id === task.id ? next : t)) } : m))
+      );
+      const what =
+        patch.done === undefined ? `עריכת משימה ב-${ms.code}: ${next.text}` : `${ms.code}: "${next.text}" ${next.done ? 'בוצעה' : 'סומנה כלא בוצעה'}`;
+      tx.log('NOMINAL', MS_SOURCE, what);
+    },
+
+    'task.delete'(tx, a) {
+      const ms = tx.state.milestones.find((m) => m.id === a.milestoneId) ?? fail(NOT_FOUND);
+      const task = ms.tasks.find((t) => t.id === a.taskId) ?? fail(NOT_FOUND);
+      tx.setMilestones(tx.state.milestones.map((m) => (m.id === ms.id ? { ...m, tasks: m.tasks.filter((t) => t.id !== task.id) } : m)));
+      tx.log('WARNING', MS_SOURCE, `משימה נמחקה מ-${ms.code}: ${task.text}`);
+    },
+
+    'unit.add'(tx, a) {
+      const raw = obj(a.fields, 'כוח');
+      const callSign = str(raw.callSign, 'אות קריאה', { required: true, max: 30 });
+      if (tx.state.units.some((u) => u.callSign === callSign)) fail('אות הקריאה תפוס');
+      const status = oneOf(raw.status, UNIT_STATUSES, 'סטטוס');
+      const t = now();
+      // New units appear near the map centre, spread a little so they don't stack; drag to place them
+      const spread = (tx.state.units.length % 5) * 4 - 8;
+      const unit: TacticalUnit = {
+        id: newId('units', 'U'),
+        callSign,
+        type: oneOf(raw.type, UNIT_TYPES, 'סוג'),
+        status,
+        commander: str(raw.commander ?? '', 'מפקד', { max: 60 }),
+        personnel: int(raw.personnel, 0, 999, 'לוחמים'),
+        sector: str(raw.sector ?? '', 'גזרה', { max: 100 }),
+        x: 50 + spread,
+        y: 50 + spread,
+        lastContact: clockTime(t),
+        signalStrength: status === 'offline' ? 0 : 90,
+      };
+      tx.upsert('units', [unit]);
+      tx.log('NOMINAL', 'שליטה בכוחות', `כוח חדש: ${unit.callSign} (${UNIT_TYPE_LABEL[unit.type]}, ${unit.personnel} לוחמים)`);
+      return unit.id;
+    },
+
+    'unit.delete'(tx, a) {
+      const target = tx.state.units.find((u) => u.id === a.id) ?? fail(NOT_FOUND);
+      tx.remove('units', [target.id]);
+      // Incidents keep the call sign as history of who was assigned
+      tx.log('WARNING', 'שליטה בכוחות', `כוח הוסר מהסד״כ: ${target.callSign}`);
+    },
+
+    'agency.add'(tx, a) {
+      const raw = obj(a.fields, 'גורם');
+      const agency = {
+        id: newId('agencies', 'AG'),
+        name: str(raw.name, 'שם', { required: true, max: 60 }),
+        role: str(raw.role ?? '', 'תפקיד', { max: 100 }),
+        liaison: str(raw.liaison ?? '', 'איש קישור', { max: 60 }),
+        status: oneOf(raw.status, AGENCY_STATUSES, 'סטטוס'),
+        frequency: raw.frequency == null ? null : frequencyOf(raw.frequency),
+        phone: raw.phone == null ? null : phoneOf(raw.phone),
+        lastSync: clockTime(now()),
+      };
+      if (!agency.frequency && !agency.phone) fail('נדרש תדר או מספר טלפון');
+      tx.upsert('agencies', [agency]);
+      tx.log('NOMINAL', 'תיאום גורמי חוץ', `גורם חוץ חדש: ${agency.name}`);
+      return agency.id;
+    },
+
+    'agency.delete'(tx, a) {
+      const target = tx.state.agencies.find((ag) => ag.id === a.id) ?? fail(NOT_FOUND);
+      tx.remove('agencies', [target.id]);
+      tx.log('WARNING', 'תיאום גורמי חוץ', `גורם חוץ הוסר: ${target.name}`);
+    },
+
+    'lpr.add'(tx, a) {
+      const raw = obj(a.fields, 'התראה');
+      const t = now();
+      const hit: LprHit = {
+        id: newId('lprHits', 'LPR'),
+        date: isoDate(t),
+        time: clockTime(t),
+        plate: str(raw.plate, 'מספר רישוי', { required: true, max: 20 }),
+        vehicle: str(raw.vehicle ?? '', 'רכב', { max: 60 }),
+        camera: str(raw.camera ?? '', 'מצלמה', { max: 80 }),
+        reason: str(raw.reason, 'סיבה', { required: true, max: 60 }),
+        status: 'open',
+      };
+      tx.upsert('lprHits', [hit]);
+      tx.log('CRITICAL', 'מערכת LPR', `התראת LPR: ${hit.plate} (${hit.reason})${hit.camera ? ` - ${hit.camera}` : ''}`);
+      tx.notice = { level: 'critical', text: `התראת LPR: ${hit.plate} - ${hit.reason}` };
+      return hit.id;
+    },
+
+    'lpr.update'(tx, a) {
+      const target = tx.state.lprHits.find((h) => h.id === a.id) ?? fail(NOT_FOUND);
+      const raw = obj(a.patch, 'שינויים');
+      const clean: Partial<LprHit> = {};
+      if ('plate' in raw) clean.plate = str(raw.plate, 'מספר רישוי', { required: true, max: 20 });
+      if ('vehicle' in raw) clean.vehicle = str(raw.vehicle, 'רכב', { max: 60 });
+      if ('camera' in raw) clean.camera = str(raw.camera, 'מצלמה', { max: 80 });
+      if ('reason' in raw) clean.reason = str(raw.reason, 'סיבה', { required: true, max: 60 });
+      if ('status' in raw) clean.status = oneOf(raw.status, LPR_STATUSES, 'סטטוס');
+      const patch = changedFields(target, clean);
+      if (Object.keys(patch).length === 0) return;
+      const next = { ...target, ...patch };
+      tx.upsert('lprHits', [next]);
+      tx.log(
+        'NOMINAL',
+        'מערכת LPR',
+        patch.status ? `התראת LPR ${next.plate} ${next.status === 'handled' ? 'טופלה' : 'נפתחה מחדש'}` : `עריכת התראת LPR ${next.plate}`
+      );
+    },
+
+    'lpr.delete'(tx, a) {
+      const target = tx.state.lprHits.find((h) => h.id === a.id) ?? fail(NOT_FOUND);
+      tx.remove('lprHits', [target.id]);
+      tx.log('WARNING', 'מערכת LPR', `התראת LPR נמחקה: ${target.plate}`);
+    },
+
+    'route.add'(tx, a) {
+      const raw = obj(a.fields, 'ציר');
+      const name = str(raw.name, 'שם ציר', { required: true, max: 40 });
+      if (tx.state.routes.some((r) => r.name === name)) fail('ציר בשם הזה כבר קיים');
+      const route = {
+        id: newId('routes', 'R'),
+        name,
+        status: oneOf(raw.status, ROUTE_STATUSES, 'מצב'),
+        note: str(raw.note ?? '', 'הערה', { max: 200 }),
+      };
+      tx.upsert('routes', [route]);
+      tx.log('NOMINAL', 'תנועה וצירים', `ציר נוסף: ${route.name} (${ROUTE_STATUS_LABEL[route.status]})`);
+      return route.id;
+    },
+
+    'route.update'(tx, a) {
+      const target = tx.state.routes.find((r) => r.id === a.id) ?? fail(NOT_FOUND);
+      const raw = obj(a.patch, 'שינויים');
+      const clean: Partial<typeof target> = {};
+      if ('name' in raw) {
+        clean.name = str(raw.name, 'שם ציר', { required: true, max: 40 });
+        if (tx.state.routes.some((r) => r.id !== target.id && r.name === clean.name)) fail('ציר בשם הזה כבר קיים');
+      }
+      if ('status' in raw) clean.status = oneOf(raw.status, ROUTE_STATUSES, 'מצב');
+      if ('note' in raw) clean.note = str(raw.note, 'הערה', { max: 200 });
+      const patch = changedFields(target, clean);
+      if (Object.keys(patch).length === 0) return;
+      const next = { ...target, ...patch };
+      tx.upsert('routes', [next]);
+      const closed = patch.status === 'closed';
+      tx.log(
+        closed ? 'WARNING' : 'NOMINAL',
+        'תנועה וצירים',
+        patch.status
+          ? `${next.name}: ${ROUTE_STATUS_LABEL[target.status]} ← ${ROUTE_STATUS_LABEL[next.status]}${next.note ? ` (${next.note})` : ''}`
+          : `עריכת ציר ${next.name}`
+      );
+      if (closed) tx.notice = { level: 'info', text: `${next.name} נסגר${next.note ? `: ${next.note}` : ''}` };
+    },
+
+    'route.delete'(tx, a) {
+      const target = tx.state.routes.find((r) => r.id === a.id) ?? fail(NOT_FOUND);
+      tx.remove('routes', [target.id]);
+      tx.log('WARNING', 'תנועה וצירים', `ציר הוסר: ${target.name}`);
+    },
+
+    'scenario.add'(tx, a) {
+      const raw = obj(a.fields, 'תרחיש');
+      const scenario = {
+        id: newId('scenarios', 'SIM'),
+        name: str(raw.name, 'שם תרחיש', { required: true, max: 100 }),
+        description: str(raw.description ?? '', 'תיאור', { max: 1000 }),
+      };
+      tx.upsert('scenarios', [scenario]);
+      tx.log('NOMINAL', 'תרגילים', `תרחיש תרגיל נוסף: ${scenario.name}`);
+      return scenario.id;
+    },
+
+    'scenario.update'(tx, a) {
+      const target = tx.state.scenarios.find((sc) => sc.id === a.id) ?? fail(NOT_FOUND);
+      const raw = obj(a.patch, 'שינויים');
+      const clean: Partial<typeof target> = {};
+      if ('name' in raw) clean.name = str(raw.name, 'שם תרחיש', { required: true, max: 100 });
+      if ('description' in raw) clean.description = str(raw.description, 'תיאור', { max: 1000 });
+      const patch = changedFields(target, clean);
+      if (Object.keys(patch).length === 0) return;
+      tx.upsert('scenarios', [{ ...target, ...patch }]);
+      tx.log('NOMINAL', 'תרגילים', `עריכת תרחיש: ${patch.name ?? target.name}`);
+    },
+
+    'scenario.delete'(tx, a) {
+      const target = tx.state.scenarios.find((sc) => sc.id === a.id) ?? fail(NOT_FOUND);
+      tx.remove('scenarios', [target.id]);
+      tx.log('WARNING', 'תרגילים', `תרחיש הוסר: ${target.name}`);
+    },
+
+    'hqName.set'(tx, a) {
+      const name = str(a.name, 'שם החפ"ק', { required: true, max: 60 });
+      if (name === tx.state.hqName) return;
+      const prev = tx.state.hqName;
+      tx.set('hqName', name);
+      tx.log('NOMINAL', 'מפקד משמרת', `שם החפ"ק: ${prev} ← ${name}`);
     },
 
     'alertLevel.set'(tx, a) {
@@ -456,6 +757,7 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
         writeAll(tx.state);
         state = tx.state;
         incidentSeq = nextIdNumber(state.incidents.map((i) => i.id), 7300);
+        resetSeqs();
         milestoneSeq = nextIdNumber(state.milestones.map((m) => m.id), 100);
         return { result: { ok: true }, reset: true, notice: { level: 'info', text: 'הנתונים אופסו לנתוני ההדגמה' } };
       }

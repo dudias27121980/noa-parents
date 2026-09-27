@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Radio, Signal, Users } from 'lucide-react';
 import { TacticalUnit, UnitStatus, UnitType } from '../types/tactical';
-import { Field, InlineEditor, Panel, StatusDot, fieldClass } from './ui';
+import { AddTile, DeleteButton, Field, InlineEditor, Panel, StatusDot, fieldClass } from './ui';
 import { playClick, playRadioChirp } from '../utils/audio';
 import { UNIT_STATUS, UNIT_TYPE_LABEL } from './TacticalMapScreen';
-import { UnitPatch } from '../shared/protocol';
+import { UnitFields, UnitPatch } from '../shared/protocol';
 import { changedFields } from '../shared/diff';
 
 export type { UnitPatch };
@@ -13,12 +13,31 @@ interface Props {
   units: TacticalUnit[];
   onPingUnit: (callSign: string) => void;
   onUpdateUnit: (id: string, patch: UnitPatch) => void;
+  onAddUnit: (fields: UnitFields) => void;
+  onDeleteUnit: (id: string) => void;
   audioEnabled: boolean;
 }
 
-export function ForcesScreen({ units, onPingUnit, onUpdateUnit, audioEnabled }: Props) {
+// A new force as it starts in the "+" editor (the server places it on the map; drag it from there)
+const NEW_UNIT: TacticalUnit = {
+  id: 'draft',
+  callSign: '',
+  type: 'patrol',
+  status: 'standby',
+  commander: '',
+  personnel: 2,
+  sector: '',
+  x: 50,
+  y: 50,
+  lastContact: '',
+  signalStrength: 90,
+};
+
+export function ForcesScreen({ units, onPingUnit, onUpdateUnit, onAddUnit, onDeleteUnit, audioEnabled }: Props) {
   const [statusFilter, setStatusFilter] = useState<UnitStatus | 'all'>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const busy = editingId !== null || adding;
   // Keep the row being edited visible even if its new status no longer matches the filter
   const visible = units.filter((u) => statusFilter === 'all' || u.status === statusFilter || u.id === editingId);
   const personnel = units.filter((u) => u.status !== 'offline').reduce((sum, u) => sum + u.personnel, 0);
@@ -57,12 +76,17 @@ export function ForcesScreen({ units, onPingUnit, onUpdateUnit, audioEnabled }: 
                 key={u.id}
                 unit={u}
                 takenCallSigns={units.filter((o) => o.id !== u.id).map((o) => o.callSign)}
-                onSave={(patch) => {
+                onSave={(fields, base) => {
                   if (audioEnabled) playClick();
+                  const patch = changedFields(base, fields);
                   if (Object.keys(patch).length) onUpdateUnit(u.id, patch);
                   setEditingId(null);
                 }}
                 onCancel={() => setEditingId(null)}
+                onDelete={() => {
+                  onDeleteUnit(u.id);
+                  setEditingId(null);
+                }}
               />
             );
           }
@@ -70,7 +94,7 @@ export function ForcesScreen({ units, onPingUnit, onUpdateUnit, audioEnabled }: 
             <div
               key={u.id}
               onDoubleClick={() => {
-                if (editingId) return; // one editor at a time
+                if (busy) return; // one editor at a time
                 if (audioEnabled) playClick();
                 setEditingId(u.id);
               }}
@@ -113,6 +137,21 @@ export function ForcesScreen({ units, onPingUnit, onUpdateUnit, audioEnabled }: 
             </div>
           );
         })}
+        {adding ? (
+          <UnitEditor
+            unit={NEW_UNIT}
+            isNew
+            takenCallSigns={units.map((o) => o.callSign)}
+            onSave={(fields) => {
+              if (audioEnabled) playClick();
+              onAddUnit(fields);
+              setAdding(false);
+            }}
+            onCancel={() => setAdding(false)}
+          />
+        ) : (
+          <AddTile label="הוספת כוח" disabled={busy} onClick={() => setAdding(true)} />
+        )}
       </div>
     </Panel>
   );
@@ -120,15 +159,19 @@ export function ForcesScreen({ units, onPingUnit, onUpdateUnit, audioEnabled }: 
 
 function UnitEditor({
   unit,
+  isNew = false,
   takenCallSigns,
   onSave,
   onCancel,
+  onDelete,
 }: {
   unit: TacticalUnit;
+  isNew?: boolean;
   takenCallSigns: string[];
-  /** Only the fields changed since the editor opened */
-  onSave: (patch: UnitPatch) => void;
+  /** All editable fields, plus the unit as it was when editing began (to work out what changed) */
+  onSave: (fields: UnitFields, base: TacticalUnit) => void;
   onCancel: () => void;
+  onDelete?: () => void;
 }) {
   // Snapshot at open: another station may change the unit meanwhile, and only our own edits are sent
   const [base] = useState(unit);
@@ -151,19 +194,21 @@ function UnitEditor({
     <InlineEditor
       onSubmit={() =>
         onSave(
-          changedFields(base, {
+          {
             callSign: callSign.trim(),
             type,
             status,
             commander: commander.trim(),
             personnel: personnelNum,
             sector: sector.trim(),
-          })
+          },
+          base
         )
       }
       onCancel={onCancel}
       invalid={invalid}
       className="grid-cols-2"
+      extraActions={onDelete && !isNew ? <DeleteButton onConfirm={onDelete} question={`להסיר את ${unit.callSign}?`} /> : undefined}
     >
       <Field label={callSignTaken ? 'אות קריאה * (תפוס)' : 'אות קריאה *'}>
         <input className={fieldClass(errors.callSign)} value={callSign} onChange={(e) => setCallSign(e.target.value)} autoFocus />

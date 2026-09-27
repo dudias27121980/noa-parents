@@ -1,4 +1,5 @@
-import { createServer as createHttpServer, IncomingMessage, ServerResponse } from 'node:http';
+import { createServer as createHttpServer, IncomingMessage, RequestListener, Server, ServerResponse } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
@@ -15,16 +16,19 @@ export interface ServerOptions {
   accessCode: string;
   /** Built client to serve (production); omit in development where Vite serves it */
   staticDir?: string;
+  /** PEM certificate + key: serve HTTPS/WSS instead of HTTP/WS. `ca` is offered at /ca.crt for stations to install */
+  tls?: { cert: string; key: string; ca?: string };
   /** Unit telemetry tick; 0 disables (tests) */
   tickMs?: number;
   heartbeatMs?: number;
   sessionSecret?: string;
   /**
-   * Behind a reverse proxy (HTTPS termination) every request comes from the proxy's address, so the
-   * login lockout would lock out all stations at once. When set, the client address is taken from
-   * X-Forwarded-For — only enable it when a proxy you control sets that header.
+   * Number of reverse proxies in front of the server (0 = none). Behind a proxy every request comes
+   * from the proxy's address, so the login lockout would lock out all stations at once; instead the
+   * client address is read from X-Forwarded-For. Only the entries appended by our own proxies are
+   * trusted — counted from the END: everything before them is whatever the client chose to send.
    */
-  trustProxy?: boolean;
+  trustProxy?: number;
   now?: () => Date;
 }
 
@@ -67,6 +71,18 @@ const readBody = (req: IncomingMessage, limit = 4096) =>
     req.on('error', bad);
   });
 
+/** The address the lockout counts against; see ServerOptions.trustProxy */
+export const clientAddress = (req: IncomingMessage, trustedHops: number): string => {
+  const socket = req.socket.remoteAddress || 'unknown';
+  if (trustedHops <= 0) return socket;
+  const chain = String(req.headers['x-forwarded-for'] ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  // The last `trustedHops` entries were written by our proxies; the nearest of them names the client
+  return chain[chain.length - trustedHops] ?? socket;
+};
+
 export function createServer(opts: ServerOptions) {
   const db = openDb(opts.dbPath);
   const core = createCore({ db, now: opts.now });
@@ -105,9 +121,22 @@ export function createServer(opts: ServerOptions) {
     res.end(readFileSync(file));
   };
 
-  const http = createHttpServer(async (req, res) => {
+  const serveCa = (res: ServerResponse) => {
+    if (!opts.tls?.ca) return json(res, 404, { error: 'Not found' });
+    res.writeHead(200, {
+      'Content-Type': 'application/x-x509-ca-cert',
+      'Content-Disposition': 'attachment; filename="hq-ca.crt"',
+      ...SECURITY_HEADERS,
+    });
+    res.end(opts.tls.ca);
+  };
+
+  const handler: RequestListener = async (req, res) => {
     const path = new URL(req.url ?? '/', 'http://x').pathname;
+    // Browsers remember to use HTTPS only (blocks a downgrade by someone on the network)
+    if (opts.tls) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     try {
+      if (path === '/ca.crt') return serveCa(res);
       if (path === '/api/health') return json(res, 200, { ok: true, stations: hub.stations() });
       if (path === '/api/login') {
         if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' });
@@ -117,8 +146,7 @@ export function createServer(opts: ServerOptions) {
         } catch {
           return json(res, 400, { error: 'בקשה לא תקינה' });
         }
-        const forwarded = opts.trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() : '';
-        const result = auth.login(body.station, body.code, forwarded || req.socket.remoteAddress || 'unknown');
+        const result = auth.login(body.station, body.code, clientAddress(req, opts.trustProxy ?? 0));
         if (result.ok) return json(res, 200, { token: result.token, station: result.station });
         if (result.retryAfterSec) return json(res, 429, { error: result.error }, { 'Retry-After': String(result.retryAfterSec) });
         return json(res, 401, { error: result.error });
@@ -130,7 +158,10 @@ export function createServer(opts: ServerOptions) {
       console.error(err);
       if (!res.headersSent) json(res, 500, { error: 'שגיאת שרת' });
     }
-  });
+  };
+
+  const http: Server = opts.tls ? createHttpsServer({ cert: opts.tls.cert, key: opts.tls.key }, handler) : createHttpServer(handler);
+  let redirectServer: Server | null = null;
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
   const alive = new WeakMap<WebSocket, boolean>();
@@ -193,10 +224,25 @@ export function createServer(opts: ServerOptions) {
     listen(port: number, host = '0.0.0.0') {
       return new Promise<number>((ok) => http.listen(port, host, () => ok((http.address() as AddressInfo).port)));
     },
+    /**
+     * Plain-HTTP helper next to HTTPS: sends everyone to https://<same host>:<httpsPort>, except
+     * /ca.crt, which a new station downloads (and installs) before it can trust the HTTPS address.
+     */
+    listenRedirect(port: number, httpsPort: number, host = '0.0.0.0') {
+      redirectServer = createHttpServer((req, res) => {
+        if (new URL(req.url ?? '/', 'http://x').pathname === '/ca.crt') return serveCa(res);
+        const hostname = (req.headers.host ?? 'localhost').replace(/:\d+$/, '');
+        res.writeHead(308, { Location: `https://${hostname}:${httpsPort}${req.url ?? '/'}`, ...SECURITY_HEADERS });
+        res.end();
+      });
+      const srv = redirectServer;
+      return new Promise<number>((ok) => srv.listen(port, host, () => ok((srv.address() as AddressInfo).port)));
+    },
     close() {
       clearInterval(heartbeat);
       if (ticker) clearInterval(ticker);
       wss.clients.forEach((ws) => ws.terminate());
+      redirectServer?.close();
       return new Promise<void>((ok) =>
         http.close(() => {
           db.close();
