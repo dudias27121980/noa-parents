@@ -32,7 +32,7 @@ const newKeys = () => {
 
 // Unique random serial that DER-encodes minimally: the first byte is 0x40–0x7f, so it is never
 // negative (high bit) and never a leading zero (Chrome rejects non-minimal integers as malformed)
-const serial = () => {
+export const serial = () => {
   const bytes = randomBytes(16);
   bytes[0] = (bytes[0] & 0x3f) | 0x40;
   return bytes.toString('hex');
