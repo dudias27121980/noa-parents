@@ -13,6 +13,7 @@ import { ForcesScreen } from './components/ForcesScreen';
 import { AgenciesScreen } from './components/AgenciesScreen';
 import { MilestoneModal } from './components/MilestoneModal';
 import { ParkingModal } from './components/ParkingModal';
+import { TitleBanner } from './components/TitleBanner';
 import { OccupancyLevel, lotRatio, occupancyLevel, parkingTotals, percent } from './shared/parking';
 import { SimModal } from './components/SimModal';
 import { SCREENS } from './components/screens';
@@ -395,6 +396,7 @@ function Dashboard({
 
   return (
     <div className="min-h-screen bg-[#070d19] text-[#dae2fd] font-['Assistant',sans-serif] flex flex-col selection:bg-cyan-500/30 selection:text-cyan-200">
+      <TitleBanner name={hqName} onChange={handleHqNameChange} readOnly={readOnly} />
       {/* Top Universal Command Bar */}
       <HeaderNav
         currentScreen={currentScreen}
@@ -408,8 +410,6 @@ function Dashboard({
         commanderName={shift.commanderName}
         shiftName={shift.shiftName}
         onShiftChange={handleShiftChange}
-        hqName={hqName}
-        onHqNameChange={handleHqNameChange}
         unresolvedIncidentsCount={unresolvedIncidentsCount}
         station={view.you ?? ''}
         stations={view.stations}

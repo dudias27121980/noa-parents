@@ -391,7 +391,9 @@ export const DEFAULT_SHIFT = { commanderName: 'נצ"מ כהן', shiftName: "ב'"
 
 export const DEFAULT_ALERT_LEVEL: AlertLevel = 'כוננות ג׳ - מצב מבצעי מוגבר';
 
-export const DEFAULT_HQ_NAME = 'חפ"ק מרחב יהודה';
+export const DEFAULT_HQ_NAME = 'חפ"ק מרחב יהודה - ימי המכפלה סוכות תשפ"ז';
+/** The default before schema 4; a name still equal to it is replaced by the current default */
+export const PREVIOUS_DEFAULT_HQ_NAME = 'חפ"ק מרחב יהודה';
 
 /** The HQ's parking lots. Status only until capacities are entered (capacity 0 = not set) */
 export const INITIAL_PARKING_LOTS: ParkingLot[] = [

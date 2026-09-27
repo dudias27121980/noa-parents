@@ -40,6 +40,7 @@ import {
 import {
   DEFAULT_ALERT_LEVEL,
   DEFAULT_HQ_NAME,
+  PREVIOUS_DEFAULT_HQ_NAME,
   DEFAULT_MAIN_FREQUENCY,
   DEFAULT_SHIFT,
   INITIAL_AGENCIES,
@@ -177,8 +178,9 @@ class Tx {
 /**
  * 1: first shared server. 2: tasks as {id,text,done}; LPR alerts, routes, drill scenarios, HQ name.
  * 3: parking lots replace the LPR alerts.
+ * 4: the HQ name becomes the page title (untouched old default → the new one).
  */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /** Upgrades a database from any earlier version in place, keeping everything already entered */
 const migrate = (s: SharedState, fresh: SharedState): SharedState => ({
@@ -192,7 +194,7 @@ const migrate = (s: SharedState, fresh: SharedState): SharedState => ({
   parkingLots: s.parkingLots?.length ? s.parkingLots : fresh.parkingLots,
   routes: s.routes?.length ? s.routes : fresh.routes,
   scenarios: s.scenarios?.length ? s.scenarios : fresh.scenarios,
-  hqName: s.hqName || fresh.hqName,
+  hqName: s.hqName && s.hqName !== PREVIOUS_DEFAULT_HQ_NAME ? s.hqName : fresh.hqName,
 });
 
 const PARKING_STATUSES: readonly ParkingStatus[] = ['available', 'filling', 'full', 'closed'];

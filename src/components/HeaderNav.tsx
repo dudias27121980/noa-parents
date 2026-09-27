@@ -19,8 +19,6 @@ interface Props {
   commanderName: string;
   shiftName: string;
   onShiftChange: (shift: { commanderName: string; shiftName: string }) => void;
-  hqName: string;
-  onHqNameChange: (name: string) => void;
   unresolvedIncidentsCount?: number;
   /** This station, the stations currently connected, and the link to the server */
   station: string;
@@ -58,8 +56,6 @@ export function HeaderNav({
   commanderName,
   shiftName,
   onShiftChange,
-  hqName,
-  onHqNameChange,
   unresolvedIncidentsCount = 0,
   station,
   stations,
@@ -85,17 +81,11 @@ export function HeaderNav({
           </div>
           <div className="leading-tight">
             {readOnly ? (
-              <>
-                <div className="text-sm font-extrabold tracking-wide text-slate-100">{hqName}</div>
-                <div className="text-[11px] text-slate-400">
-                  משמרת {shiftName} · מפקד: {commanderName}
-                </div>
-              </>
+              <div className="text-[11px] text-slate-400">
+                משמרת {shiftName} · מפקד: {commanderName}
+              </div>
             ) : (
-              <>
-                <HqName name={hqName} onChange={onHqNameChange} />
-                <ShiftLine commanderName={commanderName} shiftName={shiftName} onChange={onShiftChange} />
-              </>
+              <ShiftLine commanderName={commanderName} shiftName={shiftName} onChange={onShiftChange} />
             )}
           </div>
         </div>
@@ -125,7 +115,7 @@ export function HeaderNav({
           ))}
         </nav>
 
-        <div className="ms-auto flex items-center gap-2">
+        <div className="ms-auto flex flex-wrap items-center justify-end gap-2">
           <select
             disabled={readOnly}
             value={alertLevel}
@@ -282,45 +272,3 @@ function StationsIndicator({
 }
 
 /** The command post's name — double-click to rename */
-function HqName({ name, onChange }: { name: string; onChange: (name: string) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(name);
-
-  if (!editing) {
-    return (
-      <div
-        onDoubleClick={() => {
-          setDraft(name);
-          setEditing(true);
-        }}
-        title="לחיצה כפולה לשינוי שם"
-        className="cursor-default select-none text-sm font-extrabold tracking-wide text-slate-100"
-      >
-        {name}
-      </div>
-    );
-  }
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (draft.trim() && draft.trim() !== name) onChange(draft.trim());
-        setEditing(false);
-      }}
-      className="flex items-center gap-1"
-    >
-      <input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => e.key === 'Escape' && setEditing(false)}
-        onBlur={() => setEditing(false)}
-        maxLength={60}
-        aria-label='שם החפ"ק'
-        className={`w-44 rounded border bg-black/40 px-1.5 py-0.5 text-sm font-bold text-slate-100 outline-none ${
-          draft.trim() ? 'border-cyan-500' : 'border-red-500'
-        }`}
-      />
-    </form>
-  );
-}

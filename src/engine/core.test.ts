@@ -3,6 +3,7 @@ import { openBrowserDb } from './browserDb';
 import { createCore } from './core';
 import { clockTime } from '../utils/time';
 import { memoryStorage } from '../test/memoryStorage';
+import { DEFAULT_HQ_NAME, PREVIOUS_DEFAULT_HQ_NAME } from '../data/tacticalData';
 
 const NOW = new Date('2026-09-26T10:02:00+03:00');
 const now = () => NOW;
@@ -245,6 +246,20 @@ describe('core', () => {
     expect(core.dispatch('א', { type: 'hqName.set', name: ' ' }).result.ok).toBe(false);
   });
 
+  it('schema 4: an untouched old HQ name becomes the new title; a name the HQ chose is kept', () => {
+    for (const [stored, expected] of [
+      [PREVIOUS_DEFAULT_HQ_NAME, DEFAULT_HQ_NAME],
+      ['חפ"ק מרחב בנימין', 'חפ"ק מרחב בנימין'],
+    ]) {
+      const storage = tempDb();
+      const v3 = openDb(storage);
+      createCore({ db: v3, now });
+      v3.setSingleton('hqName', stored);
+      v3.setSingleton('schemaVersion', 3);
+      expect(createCore({ db: openDb(storage), now }).getState().hqName).toBe(expected);
+    }
+  });
+
   it('upgrades a database from the previous version without losing what was entered', () => {
     const path = tempDb();
     // Build a version-1 database: tasks as plain strings, none of the new collections, no HQ name
@@ -269,7 +284,7 @@ describe('core', () => {
     expect(upgraded.parkingLots.map((p) => p.name)).toContain('מנחת');
     expect('lprHits' in upgraded).toBe(false);
     expect(upgraded.routes.length).toBeGreaterThan(0);
-    expect(upgraded.hqName).toBe('חפ"ק מרחב יהודה');
+    expect(upgraded.hqName).toBe(DEFAULT_HQ_NAME);
 
     // And it stays upgraded: a second start does not re-seed collections the stations emptied
     const again = openDb(path);
