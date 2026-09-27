@@ -1,9 +1,9 @@
-import { AlertTriangle, Building2, Route, Users } from 'lucide-react';
+import { Building2, Route, SquareParking, Users } from 'lucide-react';
 import { KpiAction, KpiCard, KpiTone } from '../types/tactical';
 
 interface Props {
   kpis: KpiCard[];
-  onOpenLprAlert: () => void;
+  onOpenParking: () => void;
   onOpenForces: () => void;
   onOpenRoutes: () => void;
   onOpenAgencies: () => void;
@@ -17,15 +17,15 @@ const TONE: Record<KpiTone, { ring: string; text: string; bar: string }> = {
 };
 
 const ICON: Record<KpiAction, typeof Users> = {
-  lpr: AlertTriangle,
+  parking: SquareParking,
   forces: Users,
   routes: Route,
   agencies: Building2,
 };
 
-export function KpiRow({ kpis, onOpenLprAlert, onOpenForces, onOpenRoutes, onOpenAgencies }: Props) {
+export function KpiRow({ kpis, onOpenParking, onOpenForces, onOpenRoutes, onOpenAgencies }: Props) {
   const handlers: Record<KpiAction, () => void> = {
-    lpr: onOpenLprAlert,
+    parking: onOpenParking,
     forces: onOpenForces,
     routes: onOpenRoutes,
     agencies: onOpenAgencies,

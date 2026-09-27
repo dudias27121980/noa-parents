@@ -382,26 +382,32 @@ describe('everything is editable', () => {
     expect(kpi).toHaveTextContent('ציר 60 סגור');
   });
 
-  it('LPR alerts: a new alert raises the count and alerts the other station; handling lowers it', async () => {
+  it('parking: one click marks a lot full at one station; the tile and the other station follow', async () => {
     const a = await openStation('עמדה א');
     const b = await openStation('עמדה ב');
-    const kpi = () => a.q.getByText('התראות LPR').closest('button')!;
-    // The big number on the card (exact match: the card's other lines contain digits too)
-    const count = () => within(kpi()).queryByText(/^\d+$/)?.textContent;
-    expect(count()).toBe('3');
+    const tile = (st: typeof a) => st.q.getByRole('button', { name: /תמונת מצב חניונים/ });
+    expect(tile(a)).toHaveTextContent('7/7');
+    expect(tile(a)).toHaveTextContent('כל החניונים פנויים');
 
-    await a.user.click(kpi());
+    await a.user.click(tile(a));
     const dialog = within(a.q.getByRole('dialog'));
-    await a.user.click(dialog.getByRole('button', { name: /הוספת התראת LPR/ }));
-    await a.user.type(dialog.getByLabelText('מספר רישוי *'), '55-666-77');
-    await a.user.type(dialog.getByLabelText('סיבה *'), 'רכב גנוב{Enter}');
+    const lot = (name: string) => dialog.getByText(name, { exact: true }).closest('[data-lot]') as HTMLElement;
+    await a.user.click(within(lot('מנחת')).getByRole('button', { name: 'מלא' }));
 
-    await waitFor(() => expect(count()).toBe('4'));
-    expect(await b.q.findByText('עמדה א: התראת LPR: 55-666-77 - רכב גנוב')).toBeInTheDocument();
+    await waitFor(() => expect(tile(a)).toHaveTextContent('6/7'));
+    expect(tile(a)).toHaveTextContent('מלאים: מנחת');
+    expect(within(lot('מנחת')).getByRole('button', { name: 'מלא' })).toHaveAttribute('aria-pressed', 'true');
+    // The other station: alerted, and its tile agrees
+    expect(await b.q.findByText('עמדה א: חניון מנחת מלא')).toBeInTheDocument();
+    await waitFor(() => expect(tile(b)).toHaveTextContent('מלאים: מנחת'));
 
-    const row = (await dialog.findByText('55-666-77')).closest('[title="לחיצה כפולה לעריכה"]') as HTMLElement;
-    await a.user.click(within(row).getByRole('button', { name: /טופל/ }));
-    await waitFor(() => expect(count()).toBe('3'));
+    // Capacity by double-click: the tile counts free spaces
+    await a.user.dblClick(lot('מאוחדת'));
+    await a.user.type(dialog.getByLabelText('קיבולת (מקומות)'), '40');
+    await a.user.type(dialog.getByLabelText('תפוסה (רכבים)'), '15');
+    await a.user.click(dialog.getByRole('button', { name: 'שמירה' }));
+    await waitFor(() => expect(tile(a)).toHaveTextContent('25 מקומות פנויים'));
+    expect(within(lot('מאוחדת')).getByText('15/40')).toBeInTheDocument();
   });
 
   it('drill scenarios can be added and triggered', async () => {

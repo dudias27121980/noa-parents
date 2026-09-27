@@ -1,5 +1,5 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { AlertLevel, Agency, KpiCard, MilestoneStatus, TacticalIncident, ViewScreen } from './types/tactical';
+import { AlertLevel, Agency, KpiCard, MilestoneStatus, ParkingLot, TacticalIncident, ViewScreen } from './types/tactical';
 import { INITIAL_KPIS } from './data/tacticalData';
 import { HeaderNav } from './components/HeaderNav';
 import { HudCenter } from './components/HudCenter';
@@ -12,7 +12,7 @@ import { IncidentsScreen } from './components/IncidentsScreen';
 import { ForcesScreen } from './components/ForcesScreen';
 import { AgenciesScreen } from './components/AgenciesScreen';
 import { MilestoneModal } from './components/MilestoneModal';
-import { LprModal } from './components/LprModal';
+import { ParkingModal } from './components/ParkingModal';
 import { SimModal } from './components/SimModal';
 import { SCREENS } from './components/screens';
 import { playCompleteChime, playEmergencyAlarm, playRadioChirp } from './utils/audio';
@@ -70,7 +70,7 @@ function Dashboard({
   onLogout,
   headerActions,
 }: Props & { view: StoreView; state: SharedState }) {
-  const { milestones, incidents, units, agencies, lprHits, routes, scenarios, logs, alertLevel, mainFrequency, shift, hqName } =
+  const { milestones, incidents, units, agencies, parkingLots, routes, scenarios, logs, alertLevel, mainFrequency, shift, hqName } =
     state;
   const online = view.status === 'online';
   // Wall display: the whole working area is view-only (the server refuses changes too)
@@ -94,7 +94,7 @@ function Dashboard({
   // Store the id, not a copy, so the modal always shows the current row (including other stations' edits)
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
   const selectedMilestone = milestones.find((m) => m.id === selectedMilestoneId) ?? null;
-  const [isLprModalOpen, setIsLprModalOpen] = useState(false);
+  const [isParkingModalOpen, setIsParkingModalOpen] = useState(false);
   const [isSimModalOpen, setIsSimModalOpen] = useState(false);
 
   // Target clocks run on the browser clock: countdowns are derived from the schedule each tick
@@ -140,9 +140,18 @@ function Dashboard({
     const personnel = onAir.reduce((sum, u) => sum + u.personnel, 0);
     const deployed = units.filter((u) => u.status === 'deployed').length;
     const connected = agencies.filter((a) => a.status === 'connected').length;
-    const openHits = lprHits
-      .filter((h) => h.status === 'open')
-      .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`));
+    const lotsWithRoom = parkingLots.filter((p) => p.status === 'available' || p.status === 'filling');
+    const namesOf = (status: ParkingLot['status']) =>
+      parkingLots
+        .filter((p) => p.status === status)
+        .map((p) => p.name)
+        .join(', ');
+    const fullLots = namesOf('full');
+    const closedLots = namesOf('closed');
+    const fillingLots = namesOf('filling');
+    // Free spaces, where a capacity was entered (lots with room only)
+    const counted = lotsWithRoom.filter((p) => p.capacity > 0);
+    const freeSpaces = counted.reduce((sum, p) => sum + Math.max(0, p.capacity - p.occupied), 0);
     const openRoutes = routes.filter((r) => r.status === 'open').length;
     const blockedRoute = routes.find((r) => r.status === 'closed') ?? routes.find((r) => r.status === 'partial');
     const closedRoutes = routes.filter((r) => r.status === 'closed').length;
@@ -150,13 +159,20 @@ function Dashboard({
 
     return INITIAL_KPIS.map((k): KpiCard => {
       switch (k.action) {
-        case 'lpr':
+        case 'parking':
           return {
             ...k,
-            value: String(openHits.length),
-            tone: openHits.length ? 'critical' : 'nominal',
-            subLabel: openHits[0] ? `${openHits[0].plate} - ${openHits[0].camera || openHits[0].reason}` : 'אין התראות פתוחות',
-            trend: openHits[0] ? `אחרונה ${openHits[0].time}` : `${lprHits.length} טופלו`,
+            value: `${lotsWithRoom.length}/${parkingLots.length}`,
+            unit: 'פנויים',
+            tone: parkingLots.length && !lotsWithRoom.length ? 'critical' : fullLots || closedLots ? 'warning' : 'nominal',
+            subLabel: fullLots ? `מלאים: ${fullLots}` : closedLots ? `סגורים: ${closedLots}` : 'כל החניונים פנויים',
+            trend: [
+              fullLots && closedLots ? `סגורים: ${closedLots}` : '',
+              fillingLots ? `מתמלאים: ${fillingLots}` : '',
+              counted.length ? `${freeSpaces} מקומות פנויים` : '',
+            ]
+              .filter(Boolean)
+              .join(' · '),
           };
         case 'forces':
           return { ...k, value: String(personnel), subLabel: `${onAir.length} צוותים בקשר`, trend: `${deployed} פרוסים` };
@@ -179,7 +195,7 @@ function Dashboard({
           };
       }
     });
-  }, [units, agencies, lprHits, routes]);
+  }, [units, agencies, parkingLots, routes]);
 
   const unresolvedIncidentsCount = incidents.filter((i) => i.status !== 'resolved').length;
 
@@ -385,10 +401,7 @@ function Dashboard({
 
         <KpiRow
           kpis={kpis}
-          onOpenLprAlert={() => {
-            if (audioEnabled) playEmergencyAlarm();
-            setIsLprModalOpen(true);
-          }}
+          onOpenParking={() => setIsParkingModalOpen(true)}
           onOpenForces={() => setCurrentScreen('forces')}
           onOpenRoutes={() => setCurrentScreen('map')}
           onOpenAgencies={() => setCurrentScreen('agencies')}
@@ -437,13 +450,13 @@ function Dashboard({
         />
       )}
 
-      {isLprModalOpen && (
-        <LprModal
-          hits={lprHits}
-          onAdd={(fields) => void send({ type: 'lpr.add', fields })}
-          onUpdate={(id, patch) => void send({ type: 'lpr.update', id, patch })}
-          onDelete={(id) => void send({ type: 'lpr.delete', id })}
-          onClose={() => setIsLprModalOpen(false)}
+      {isParkingModalOpen && (
+        <ParkingModal
+          lots={parkingLots}
+          onAdd={(fields) => void send({ type: 'parking.add', fields })}
+          onUpdate={(id, patch) => void send({ type: 'parking.update', id, patch })}
+          onDelete={(id) => void send({ type: 'parking.delete', id })}
+          onClose={() => setIsParkingModalOpen(false)}
         />
       )}
 

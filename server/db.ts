@@ -69,7 +69,8 @@ export function openDb(path: string): Db {
       }[];
       if (rows.length === 0) return null;
       const state = Object.fromEntries(COLLECTIONS.map((c) => [c, []])) as unknown as SharedState;
-      for (const row of rows) (state[row.collection] as unknown[]).push(JSON.parse(row.data));
+      // Rows of a collection that no longer exists (e.g. the LPR alerts before schema 3) are left alone
+      for (const row of rows) (state[row.collection] as unknown[] | undefined)?.push(JSON.parse(row.data));
       state.logs = (
         db.prepare('SELECT data FROM logs ORDER BY seq DESC LIMIT ?').all(LOG_WINDOW) as { data: string }[]
       ).map((r) => JSON.parse(r.data));

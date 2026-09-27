@@ -2,7 +2,7 @@ import {
   Agency,
   AlertLevel,
   LogEntry,
-  LprHit,
+  ParkingLot,
   Milestone,
   MilestoneStatus,
   MilestoneTask,
@@ -28,7 +28,7 @@ export interface SharedState {
   incidents: TacticalIncident[];
   units: TacticalUnit[];
   agencies: Agency[];
-  lprHits: LprHit[];
+  parkingLots: ParkingLot[];
   routes: TacticalRoute[];
   scenarios: SimScenario[];
   /** Newest first; stations receive at most LOG_WINDOW entries, the server keeps all of them */
@@ -41,7 +41,7 @@ export interface SharedState {
 
 export const LOG_WINDOW = 500;
 
-export const COLLECTIONS = ['milestones', 'incidents', 'units', 'agencies', 'lprHits', 'routes', 'scenarios'] as const;
+export const COLLECTIONS = ['milestones', 'incidents', 'units', 'agencies', 'parkingLots', 'routes', 'scenarios'] as const;
 export type CollectionName = (typeof COLLECTIONS)[number];
 export type SingletonName = 'alertLevel' | 'mainFrequency' | 'shift' | 'hqName';
 
@@ -61,8 +61,8 @@ export type UnitPatch = Partial<UnitFields & Pick<TacticalUnit, 'x' | 'y'>>;
 export type AgencyFields = Pick<Agency, 'name' | 'role' | 'liaison' | 'frequency' | 'phone' | 'status'>;
 export type AgencyPatch = Partial<AgencyFields>;
 export type TaskPatch = Partial<Pick<MilestoneTask, 'text' | 'done'>>;
-export type LprFields = Pick<LprHit, 'plate' | 'vehicle' | 'camera' | 'reason'>;
-export type LprPatch = Partial<LprFields & Pick<LprHit, 'status'>>;
+export type ParkingFields = Pick<ParkingLot, 'name' | 'status' | 'capacity' | 'occupied' | 'note'>;
+export type ParkingPatch = Partial<ParkingFields>;
 export type RouteFields = Pick<TacticalRoute, 'name' | 'status' | 'note'>;
 export type RoutePatch = Partial<RouteFields>;
 export type ScenarioFields = Pick<SimScenario, 'name' | 'description'>;
@@ -86,9 +86,9 @@ export type Action =
   | { type: 'agency.add'; fields: AgencyFields }
   | { type: 'agency.update'; id: string; patch: AgencyPatch }
   | { type: 'agency.delete'; id: string }
-  | { type: 'lpr.add'; fields: LprFields }
-  | { type: 'lpr.update'; id: string; patch: LprPatch }
-  | { type: 'lpr.delete'; id: string }
+  | { type: 'parking.add'; fields: ParkingFields }
+  | { type: 'parking.update'; id: string; patch: ParkingPatch }
+  | { type: 'parking.delete'; id: string }
   | { type: 'route.add'; fields: RouteFields }
   | { type: 'route.update'; id: string; patch: RoutePatch }
   | { type: 'route.delete'; id: string }

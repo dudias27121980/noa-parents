@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDb } from './db';
 import { createCore } from './core';
+import { clockTime } from '../src/utils/time';
 
 const NOW = new Date('2026-09-26T10:02:00+03:00');
 const now = () => NOW;
@@ -175,16 +176,42 @@ describe('core', () => {
     expect(core.getState().agencies.some((a) => a.id === id)).toBe(false);
   });
 
-  it('LPR: a new alert is critical for every station; it can be handled and deleted', () => {
+  it('parking: the seven lots are there; full or closed alerts the other stations; numbers are checked', () => {
     const core = memCore();
-    const out = core.dispatch('א', { type: 'lpr.add', fields: { plate: '11-222-33', vehicle: '', camera: 'LPR-1', reason: 'רכב גנוב' } });
-    expect(out.notice).toEqual({ level: 'critical', text: 'התראת LPR: 11-222-33 - רכב גנוב' });
-    expect(out.patch!.logs![0].severity).toBe('CRITICAL');
-    const id = out.result.ok ? out.result.id! : '';
-    core.dispatch('א', { type: 'lpr.update', id, patch: { status: 'handled' } });
-    expect(core.getState().lprHits.find((h) => h.id === id)!.status).toBe('handled');
-    core.dispatch('א', { type: 'lpr.delete', id });
-    expect(core.getState().lprHits.some((h) => h.id === id)).toBe(false);
+    expect(core.getState().parkingLots.map((p) => p.name)).toEqual([
+      'יתק"א עליון',
+      'יתק"א תחתון',
+      'מנחת',
+      'מאוחדת',
+      'אלייקים',
+      'חשוף עליון',
+      'עיריה',
+    ]);
+    expect(core.getState().parkingLots.every((p) => p.status === 'available')).toBe(true);
+
+    const full = core.dispatch('א', { type: 'parking.update', id: 'P-3', patch: { status: 'full', note: 'שמור למסוקים' } });
+    expect(full.notice).toEqual({ level: 'info', text: 'חניון מנחת מלא: שמור למסוקים' });
+    expect(full.patch!.logs![0]).toMatchObject({ severity: 'WARNING', action: 'מנחת: פנוי ← מלא (שמור למסוקים)', station: 'א' });
+    expect(core.getState().parkingLots.find((p) => p.id === 'P-3')!.updated).toBe(clockTime(NOW));
+    // Back to available: logged, no alert
+    expect(core.dispatch('א', { type: 'parking.update', id: 'P-3', patch: { status: 'available' } }).notice).toBeUndefined();
+
+    // Capacity and occupancy
+    expect(core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { capacity: 40, occupied: 12 } }).result.ok).toBe(true);
+    const over = core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { occupied: 41 } });
+    expect(over.result).toEqual({ ok: false, error: 'תפוסה (41) גדולה מהקיבולת (40)' });
+    expect(core.getState().parkingLots.find((p) => p.id === 'P-4')!.occupied).toBe(12);
+    expect(core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { capacity: -1 } }).result.ok).toBe(false);
+    expect(core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { status: 'half' as never } }).result.ok).toBe(false);
+
+    // Add, unique names, delete
+    const base = { status: 'available' as const, capacity: 0, occupied: 0, note: '' };
+    expect(core.dispatch('א', { type: 'parking.add', fields: { ...base, name: 'מנחת' } }).result).toEqual({ ok: false, error: 'חניון בשם הזה כבר קיים' });
+    const added = core.dispatch('א', { type: 'parking.add', fields: { ...base, name: 'חניון מערבי' } });
+    const id = added.result.ok ? added.result.id! : '';
+    expect(id).toBe('P-8');
+    core.dispatch('א', { type: 'parking.delete', id });
+    expect(core.getState().parkingLots.some((p) => p.id === id)).toBe(false);
   });
 
   it('routes: unique names; closing a route alerts the other stations', () => {
@@ -218,7 +245,9 @@ describe('core', () => {
       .getState()
       .milestones.map((m) => ({ ...m, title: m.id === 'MS-04' ? 'נערך לפני השדרוג' : m.title, tasks: m.tasks.map((t) => t.text) }));
     v1.replaceCollection('milestones', oldMilestones as never);
-    (['lprHits', 'routes', 'scenarios'] as const).forEach((c) => v1.replaceCollection(c, []));
+    (['parkingLots', 'routes', 'scenarios'] as const).forEach((c) => v1.replaceCollection(c, []));
+    // A retired collection (the LPR alerts of schema 2) left in the file must not break loading
+    v1.upsert('lprHits' as never, [{ id: 'LPR-1', plate: '12-345-67' } as { id: string }]);
     v1.setSingleton('hqName', '');
     v1.setSingleton('schemaVersion', 1);
     v1.close();
@@ -228,14 +257,15 @@ describe('core', () => {
     expect(ms04.title).toBe('נערך לפני השדרוג');
     expect(ms04.tasks[0]).toEqual({ id: 'MS-04-T1', text: 'תיאום זמני החלפה', done: false });
     expect(upgraded.milestones.find((m) => m.id === 'MS-01')!.tasks.every((t) => t.done)).toBe(true);
-    expect(upgraded.lprHits.length).toBeGreaterThan(0);
+    expect(upgraded.parkingLots.map((p) => p.name)).toContain('מנחת');
+    expect('lprHits' in upgraded).toBe(false);
     expect(upgraded.routes.length).toBeGreaterThan(0);
     expect(upgraded.hqName).toBe('חפ"ק מרחב יהודה');
 
     // And it stays upgraded: a second start does not re-seed collections the stations emptied
     const again = openDb(path);
-    again.replaceCollection('lprHits', []);
+    again.replaceCollection('parkingLots', []);
     again.close();
-    expect(createCore({ db: openDb(path), now }).getState().lprHits).toEqual([]);
+    expect(createCore({ db: openDb(path), now }).getState().parkingLots).toEqual([]);
   });
 });

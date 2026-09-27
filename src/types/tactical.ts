@@ -33,18 +33,19 @@ export interface MilestoneTask {
   done: boolean;
 }
 
-export type LprHitStatus = 'open' | 'handled';
+export type ParkingStatus = 'available' | 'filling' | 'full' | 'closed';
 
-/** A licence-plate-recognition alert (camera hit on a watch list) */
-export interface LprHit {
+/** A parking lot in the parking status picture */
+export interface ParkingLot {
   id: string;
-  date: string;
-  time: string;
-  plate: string;
-  vehicle: string;
-  camera: string;
-  reason: string;
-  status: LprHitStatus;
+  name: string;
+  status: ParkingStatus;
+  /** Number of spaces; 0 = not set (then only the status is shown) */
+  capacity: number;
+  occupied: number;
+  note: string;
+  /** Server clock time ("HH:MM:SS") of the last change */
+  updated: string;
 }
 
 export type RouteStatus = 'open' | 'partial' | 'closed';
@@ -63,7 +64,7 @@ export interface SimScenario {
 }
 
 export type KpiTone = 'critical' | 'warning' | 'nominal' | 'info';
-export type KpiAction = 'lpr' | 'forces' | 'routes' | 'agencies';
+export type KpiAction = 'parking' | 'forces' | 'routes' | 'agencies';
 
 export interface KpiCard {
   id: string;
