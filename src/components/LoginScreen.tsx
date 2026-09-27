@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { KeyRound, Shield } from 'lucide-react';
 import { Session, lastStationName, login } from '../sync/session';
 import { fieldClass } from './ui';
@@ -9,14 +9,21 @@ export function LoginScreen({ onLogin, message }: { onLogin: (s: Session) => voi
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [display, setDisplay] = useState(false);
+  const [waking, setWaking] = useState(false);
+
+  // Start waking a sleeping server while the station name and code are being typed
+  useEffect(() => {
+    void fetch('/api/health', { cache: 'no-store' }).catch(() => {});
+  }, []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!station.trim() || !code || busy) return;
     setBusy(true);
     setError(null);
-    const res = await login(station.trim(), code, display);
+    const res = await login(station.trim(), code, display, { onWaiting: () => setWaking(true) });
     setBusy(false);
+    setWaking(false);
     if (res.ok) onLogin(res.session);
     else {
       setError(res.error);
@@ -76,6 +83,12 @@ export function LoginScreen({ onLogin, message }: { onLogin: (s: Session) => voi
           </span>
         </label>
 
+        {waking && (
+          <p role="status" className="mb-3 rounded border border-cyan-500/40 bg-cyan-500/10 p-2 text-xs text-cyan-200">
+            השרת מתעורר, רגע… (עד דקה)
+          </p>
+        )}
+
         {error && (
           <p role="alert" className="mb-3 text-xs font-semibold text-red-300">
             {error}
@@ -87,7 +100,7 @@ export function LoginScreen({ onLogin, message }: { onLogin: (s: Session) => voi
           disabled={busy || !station.trim() || !code}
           className="flex w-full items-center justify-center gap-2 rounded bg-cyan-600 py-2 text-sm font-bold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <KeyRound size={16} /> {busy ? 'מתחבר…' : 'כניסה'}
+          <KeyRound size={16} /> {waking ? 'ממתין לשרת…' : busy ? 'מתחבר…' : 'כניסה'}
         </button>
       </form>
     </div>
