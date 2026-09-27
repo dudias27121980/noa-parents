@@ -222,6 +222,7 @@ function Dashboard({
             value: fmt(worship.latest.count),
             unit: 'מתפללים',
             tone: 'info',
+            side: { label: 'מתחילת האירוע', value: fmt(worship.total) },
             subLabel: `דיווח אחרון ${worship.latest.time}${c === null ? '' : c === 0 ? ' · ללא שינוי' : ` · ${c > 0 ? '▲' : '▼'} ${fmt(Math.abs(c))}`}`,
             trend: worship.peak ? `שיא: ${fmt(worship.peak.count)} ב-${worship.peak.time}` : '',
           };

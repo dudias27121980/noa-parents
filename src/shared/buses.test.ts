@@ -22,6 +22,7 @@ describe('worshipper summary', () => {
     expect(s.latest?.time).toBe('11:00');
     expect(s.change).toBe(-500);
     expect(s.peak?.count).toBe(5000);
-    expect(worshipSummary([])).toEqual({ latest: null, change: null, peak: null, count: 0 });
+    expect(s.total).toBe(5000 + 3000 + 4500 + 100);
+    expect(worshipSummary([])).toEqual({ latest: null, change: null, peak: null, count: 0, total: 0 });
   });
 });

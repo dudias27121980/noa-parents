@@ -78,6 +78,8 @@ export interface KpiCard {
   trend: string;
   tone: KpiTone;
   action: KpiAction;
+  /** A second figure on the tile's left side (e.g. the cumulative total) */
+  side?: { label: string; value: string };
 }
 
 export type UnitType = 'patrol' | 'swat' | 'drone' | 'medical' | 'command';

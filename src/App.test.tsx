@@ -549,6 +549,8 @@ describe('everything is editable', () => {
     expect(tile(b)).toHaveTextContent('דיווח אחרון 10:30');
     expect(tile(b)).toHaveTextContent('▲ 1,500');
     expect(tile(b)).toHaveTextContent('שיא: 4,500 ב-10:30');
+    // Left side: the running total of every report since the event began
+    expect(within(tile(b)).getByTestId('kpi-worship-side')).toHaveTextContent('מתחילת האירוע7,500');
     // Newest first, with the change
     const rows = dialog.getAllByTitle('לחיצה כפולה לעריכה');
     expect(rows[0]).toHaveTextContent('10:30');

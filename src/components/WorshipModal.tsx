@@ -28,7 +28,8 @@ export function WorshipModal({ reports, onAdd, onUpdate, onDelete, onClose }: Pr
   return (
     <ModalShell title="סטטוס מתפללים" icon={<UsersRound size={18} />} onClose={onClose} wide>
       <div className="flex flex-col gap-3">
-        <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
+          <Stat label="מצטבר מתחילת האירוע" value={fmt(summary.total)} sub={`${summary.count} דיווחים`} />
           <Stat label="דיווח אחרון" value={summary.latest ? fmt(summary.latest.count) : '—'} sub={summary.latest?.time ?? ''} />
           <Stat
             label="שינוי מהקודם"

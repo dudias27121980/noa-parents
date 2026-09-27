@@ -37,7 +37,9 @@ export function worshipSummary(reports: WorshipReport[]) {
   const latest = sorted.at(-1) ?? null;
   const previous = sorted.at(-2) ?? null;
   const peak = sorted.reduce<WorshipReport | null>((p, r) => (!p || r.count > p.count ? r : p), null);
-  return { latest, change: latest && previous ? latest.count - previous.count : null, peak, count: sorted.length };
+  // Cumulative: every report adds its count (the reports count worshippers per period)
+  const total = sorted.reduce((s, r) => s + r.count, 0);
+  return { latest, change: latest && previous ? latest.count - previous.count : null, peak, count: sorted.length, total };
 }
 
 export const fmt = (v: number) => v.toLocaleString('he-IL');

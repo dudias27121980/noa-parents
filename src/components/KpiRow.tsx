@@ -60,6 +60,14 @@ export function KpiRow({ kpis, onOpenParking, onOpenForces, onOpenRoutes, onOpen
                 {k.value}
               </span>
               {k.unit && <span className="text-xs text-slate-400">{k.unit}</span>}
+              {k.side && (
+                <span className="ms-auto flex flex-col items-end border-s border-slate-700 ps-2 leading-tight" data-testid={`${k.id}-side`}>
+                  <span className="text-[10px] text-slate-400">{k.side.label}</span>
+                  <span className="font-mono text-lg font-bold text-slate-100" dir="ltr">
+                    {k.side.value}
+                  </span>
+                </span>
+              )}
             </div>
             <div className="mt-1 truncate text-[11px] text-slate-300">{k.subLabel}</div>
             <div className="text-[10px] text-slate-500">{k.trend}</div>
