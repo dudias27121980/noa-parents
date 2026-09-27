@@ -52,6 +52,7 @@ const server = createServer({
   // Number of proxies in front of the server (Render: 1); unset/0 = none
   trustProxy,
   tls,
+  log: (line) => console.log(line),
 });
 
 const actualPort = await server.listen(port, host);

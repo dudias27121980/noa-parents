@@ -30,6 +30,8 @@ export interface ServerOptions {
    */
   trustProxy?: number;
   now?: () => Date;
+  /** Connection log (live connections opening and closing); omit to stay quiet (tests) */
+  log?: (line: string) => void;
 }
 
 const MIME: Record<string, string> = {
@@ -174,8 +176,10 @@ export function createServer(opts: ServerOptions) {
       return;
     }
     const identity = auth.verify(url.searchParams.get('token'));
+    const from = clientAddress(req, opts.trustProxy ?? 0);
     wss.handleUpgrade(req, socket, head, (ws) => {
       if (!identity) {
+        opts.log?.(`ws rejected (bad or expired token) from ${from}`);
         // Upgrade first, then close with a code the client understands ("log in again")
         ws.close(CLOSE_UNAUTHORIZED, 'unauthorized');
         return;
@@ -202,7 +206,12 @@ export function createServer(opts: ServerOptions) {
           console.error('action failed', err);
         }
       });
-      ws.on('close', () => hub.leave(conn));
+      const opened = Date.now();
+      opts.log?.(`ws open: ${identity.station}${conn.readOnly ? ' (display)' : ''} from ${from}`);
+      ws.on('close', (code) => {
+        opts.log?.(`ws closed: ${identity.station} code ${code} after ${Math.round((Date.now() - opened) / 1000)}s`);
+        hub.leave(conn);
+      });
       ws.on('error', () => hub.leave(conn));
       hub.join(conn);
     });

@@ -14,7 +14,7 @@ afterEach(async () => {
   for (const c of cleanups.splice(0).reverse()) await c();
 });
 
-async function start(dbPath?: string, trustProxy = 0): Promise<Running & { dir: string }> {
+async function start(dbPath?: string, trustProxy = 0, log?: (line: string) => void): Promise<Running & { dir: string }> {
   const dir = mkdtempSync(join(tmpdir(), 'tactical-app-'));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   mkdirSync(join(dir, 'dist', 'assets'), { recursive: true });
@@ -27,6 +27,7 @@ async function start(dbPath?: string, trustProxy = 0): Promise<Running & { dir: 
     staticDir: join(dir, 'dist'),
     tickMs: 0,
     trustProxy,
+    log,
   });
   const port = await server.listen(0, '127.0.0.1');
   let stopped = false;
@@ -147,6 +148,20 @@ describe('live sync over WebSocket', () => {
   it('refuses a missing or forged token with the "log in again" code', async () => {
     const { port } = await start();
     expect(await connect(port, 'forged.token').closed).toBe(4001);
+  });
+
+  it('logs live connections opening, closing and being refused (the only trace in the host logs)', async () => {
+    const lines: string[] = [];
+    const { url, port } = await start(undefined, 0, (l) => lines.push(l));
+    const c = connect(port, await tokenFor(url, 'עמדה 7'));
+    await c.next((m) => m.t === 'snapshot');
+    c.ws.close(1000);
+    await c.closed;
+    await connect(port, 'forged.token').closed;
+    await new Promise((r) => setTimeout(r, 50));
+    expect(lines[0]).toBe('ws open: עמדה 7 from 127.0.0.1');
+    expect(lines[1]).toMatch(/^ws closed: עמדה 7 code 1000 after \d+s$/);
+    expect(lines[2]).toBe('ws rejected (bad or expired token) from 127.0.0.1');
   });
 
   it('sends a snapshot, then broadcasts one station’s change to the others', async () => {
