@@ -449,7 +449,8 @@ describe('everything is editable', () => {
     await waitFor(() => expect(toneOf(a)).toContain('red'));
     await waitFor(() => expect(toneOf(b)).toContain('red'));
     expect(playParkingAlarm).toHaveBeenCalledTimes(2);
-    expect(await a.q.findByText('תפוסת החניונים הגיעה ל-90%')).toBeInTheDocument();
+    // The lot and the overall picture crossed together: one alarm, one message naming both
+    expect(await a.q.findByText('חניון מאוחדת הגיע ל-90% · תפוסת החניונים הגיעה ל-90%')).toBeInTheDocument();
     // Staying red does not repeat it
     await a.user.click(within(lot('מאוחדת')).getByRole('button', { name: 'עוד רכב במאוחדת' }));
     await waitFor(() => expect(tile(a)).toHaveTextContent('91%'));
@@ -458,6 +459,43 @@ describe('everything is editable', () => {
     // A count above the capacity is not sent
     await setCount(150);
     await waitFor(() => expect(count()).toHaveValue('91'));
+  });
+
+  it('parking: a single lot reaching 90% sounds the alarm even while the overall occupancy is low', async () => {
+    const a = await openStation('עמדה א');
+    const tile = () => a.q.getByRole('button', { name: /תמונת מצב חניונים/ });
+    await a.user.click(tile());
+    const dialog = within(a.q.getByRole('dialog'));
+    const lot = (name: string) => dialog.getByText(name, { exact: true }).closest('[data-lot]') as HTMLElement;
+    const setUp = async (name: string, capacity: number, occupied: number) => {
+      await a.user.dblClick(lot(name));
+      await a.user.type(dialog.getByLabelText('קיבולת רכבים בחניון *'), String(capacity));
+      await a.user.clear(dialog.getByLabelText('כמה רכבים עד עכשיו'));
+      await a.user.type(dialog.getByLabelText('כמה רכבים עד עכשיו'), String(occupied));
+      await a.user.click(dialog.getByRole('button', { name: 'שמירה' }));
+    };
+    await setUp('מאוחדת', 100, 10);
+    await setUp('מנחת', 10, 8);
+    await waitFor(() => expect(tile()).toHaveTextContent('16%'));
+    expect(playParkingAlarm).not.toHaveBeenCalled();
+
+    await a.user.click(within(lot('מנחת')).getByRole('button', { name: 'עוד רכב במנחת' }));
+    expect(await a.q.findByText('חניון מנחת הגיע ל-90%')).toBeInTheDocument();
+    expect(playParkingAlarm).toHaveBeenCalledTimes(1);
+    expect(tile().className).toContain('emerald'); // overall 17%: the tile stays green
+
+    // Staying red, or another lot's change, does not repeat it
+    await a.user.click(within(lot('מנחת')).getByRole('button', { name: 'עוד רכב במנחת' }));
+    await a.user.click(within(lot('מאוחדת')).getByRole('button', { name: 'עוד רכב במאוחדת' }));
+    await waitFor(() => expect(tile()).toHaveTextContent('19%'));
+    expect(playParkingAlarm).toHaveBeenCalledTimes(1);
+
+    // Dropping below 90% and crossing again sounds it again
+    await a.user.click(within(lot('מנחת')).getByRole('button', { name: 'פחות רכב במנחת' }));
+    await a.user.click(within(lot('מנחת')).getByRole('button', { name: 'פחות רכב במנחת' }));
+    await waitFor(() => expect(within(lot('מנחת')).getByTestId('lot-percent')).toHaveTextContent('80%'));
+    await a.user.click(within(lot('מנחת')).getByRole('button', { name: 'עוד רכב במנחת' }));
+    await waitFor(() => expect(playParkingAlarm).toHaveBeenCalledTimes(2));
   });
 
   it('drill scenarios can be added and triggered', async () => {

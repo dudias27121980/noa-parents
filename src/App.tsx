@@ -13,7 +13,7 @@ import { ForcesScreen } from './components/ForcesScreen';
 import { AgenciesScreen } from './components/AgenciesScreen';
 import { MilestoneModal } from './components/MilestoneModal';
 import { ParkingModal } from './components/ParkingModal';
-import { OccupancyLevel, occupancyLevel, parkingTotals, percent } from './shared/parking';
+import { OccupancyLevel, lotRatio, occupancyLevel, parkingTotals, percent } from './shared/parking';
 import { SimModal } from './components/SimModal';
 import { SCREENS } from './components/screens';
 import { playCompleteChime, playEmergencyAlarm, playParkingAlarm, playRadioChirp } from './utils/audio';
@@ -209,18 +209,33 @@ function Dashboard({
     });
   }, [units, agencies, parkingLots, routes]);
 
-  // Parking alarm: five seconds of beeps, and a red message, when the overall occupancy reaches 90%.
-  // Only on the crossing (not when the page opens already red), at every station that sees it.
+  // Parking alarm: five seconds of beeps and a red message when the overall occupancy, or any single open
+  // lot, reaches 90%. Only on the crossing (not when the page opens already red), at every station that
+  // sees it, and one alarm even when several cross in the same change.
   const parkingRatio = useMemo(() => parkingTotals(parkingLots).ratio, [parkingLots]);
   const parkingLevel = parkingRatio === null ? null : occupancyLevel(parkingRatio);
-  const lastParkingLevel = useRef(parkingLevel);
+  const redLots = useMemo(
+    () =>
+      parkingLots.filter((p) => {
+        const r = lotRatio(p);
+        return p.status !== 'closed' && r !== null && occupancyLevel(r) === 'red';
+      }),
+    [parkingLots]
+  );
+  const lastParking = useRef({ level: parkingLevel, red: new Set(redLots.map((p) => p.id)) });
   useEffect(() => {
-    const was = lastParkingLevel.current;
-    lastParkingLevel.current = parkingLevel;
-    if (parkingLevel !== 'red' || was === 'red') return;
+    const was = lastParking.current;
+    lastParking.current = { level: parkingLevel, red: new Set(redLots.map((p) => p.id)) };
+    const newlyRed = redLots.filter((p) => !was.red.has(p.id));
+    const overallCrossed = parkingLevel === 'red' && was.level !== 'red';
+    if (!newlyRed.length && !overallCrossed) return;
     if (audioEnabled) playParkingAlarm();
-    showToast(`תפוסת החניונים הגיעה ל-${percent(parkingRatio!)}%`, 8000, true);
-  }, [parkingLevel, parkingRatio, audioEnabled, showToast]);
+    const lines = [
+      ...newlyRed.map((p) => `חניון ${p.name} הגיע ל-${percent(lotRatio(p)!)}%`),
+      overallCrossed ? `תפוסת החניונים הגיעה ל-${percent(parkingRatio!)}%` : '',
+    ].filter(Boolean);
+    showToast(lines.join(' · '), 8000, true);
+  }, [parkingLevel, parkingRatio, redLots, audioEnabled, showToast]);
 
   const unresolvedIncidentsCount = incidents.filter((i) => i.status !== 'resolved').length;
 

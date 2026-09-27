@@ -126,7 +126,7 @@ export const INITIAL_KPIS: KpiCard[] = [
   },
   {
     id: 'kpi-agencies',
-    label: 'גורמי חוץ מחוברים',
+    label: 'כוחות חבירים',
     value: '5/6',
     subLabel: 'מד"א בתקשורת לקויה',
     trend: 'סנכרון 30 שנ׳',
