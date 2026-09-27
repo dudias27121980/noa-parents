@@ -1,66 +1,60 @@
-import { StrictMode, useEffect, useState } from 'react';
+import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
-import { LoginScreen } from './components/LoginScreen';
 import { SharedStore } from './sync/store';
-import { webSocketTransport } from './sync/transport';
-import { Session, clearSession, loadSession, saveSession } from './sync/session';
-import { useKeepAlive } from './sync/keepAlive';
+import { STORAGE_KEY, openBrowserDb } from './engine/browserDb';
+import { createLocalServer } from './engine/localServer';
+import { BackupButtons } from './components/BackupButtons';
+import { SaveStatus } from './components/SaveStatus';
+import { AutoSaver, browserPickers, indexedDbHandleStore, requestPersistentStorage } from './engine/autoSave';
 import './index.css';
 
-/** Login first; then one live connection to the shared server for as long as the session is valid */
-function Root() {
-  useKeepAlive();
-  const [session, setSession] = useState<Session | null>(loadSession);
-  const [store, setStore] = useState<SharedStore | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+// The offline file: the whole system in one page, with the data kept in this browser only
+let warned = false;
+// Declared first: the engine writes its seed data while it starts, before the saver exists
+let saver: AutoSaver | undefined;
+const db = openBrowserDb(
+  window.localStorage,
+  () => {
+    if (warned) return;
+    warned = true;
+    window.alert('השמירה בדפדפן נכשלה (האחסון מלא או חסום). השינויים לא יישמרו - יש לייצא גיבוי עכשיו.');
+  },
+  () => saver?.schedule()
+);
+// Every change is also written to a file the HQ chose on disk, which survives a browser clean-up
+saver = new AutoSaver(db.dump, indexedDbHandleStore(), browserPickers(), {
+  localIsFresh: db.startedEmpty,
+  restore: (dump) => restore(dump),
+  confirm: (text) => window.confirm(text),
+});
+const fileSaver = saver;
+requestPersistentStorage();
+void fileSaver.resume();
+const server = createLocalServer(db);
+const store = new SharedStore(server.transport);
+store.start();
 
-  useEffect(() => {
-    if (!session) return;
-    const s = new SharedStore(webSocketTransport(session.token));
-    const unsubscribe = s.subscribe(() => {
-      if (s.getView().status === 'unauthorized') {
-        // Expired or rejected token (e.g. the access code was changed): back to login
-        clearSession();
-        setSession(null);
-        setMessage('פג תוקף הכניסה - יש להתחבר מחדש');
-      }
-    });
-    s.start();
-    setStore(s);
-    return () => {
-      unsubscribe();
-      s.stop();
-      setStore(null);
-    };
-  }, [session]);
-
-  if (!session) {
-    return (
-      <LoginScreen
-        message={message}
-        onLogin={(s) => {
-          saveSession(s);
-          setMessage(null);
-          setSession(s);
-        }}
-      />
-    );
+const restore: Parameters<typeof BackupButtons>[0]['restore'] = (dump) => {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(dump));
+  } catch {
+    window.alert('השחזור נכשל: לא ניתן לשמור בדפדפן');
+    return;
   }
-  if (!store) return null;
-  return (
-    <App
-      store={store}
-      onLogout={() => {
-        clearSession();
-        setSession(null);
-      }}
-    />
-  );
-}
+  window.location.reload();
+};
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Root />
+    <App
+      store={store}
+      headerActions={
+        <>
+          <SaveStatus saver={fileSaver} current={db.dump} restore={restore} />
+          <BackupButtons dump={db.dump} restore={restore} />
+        </>
+      }
+    />
   </StrictMode>
 );

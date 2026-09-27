@@ -4,6 +4,10 @@ import userEvent from '@testing-library/user-event';
 import App from './App';
 import { SharedStore } from './sync/store';
 import { createTestServer, TestServer } from './test/testServer';
+import { playParkingAlarm } from './utils/audio';
+
+// Sounds are silent in the test browser anyway; the parking alarm is recorded to check when it fires
+vi.mock('./utils/audio', async (original) => ({ ...(await original<typeof import('./utils/audio')>()), playParkingAlarm: vi.fn() }));
 
 // Fixed browser clock: the demo schedule is laid out around "now", so every countdown is deterministic
 const NOW = new Date('2026-09-26T10:02:00+03:00');
@@ -32,7 +36,7 @@ async function openStation(name = 'עמדה 1', { display = false } = {}) {
   const q = within(r.container);
   await q.findByText('אבני דרך ומשימות קרב');
   const goTo = (label: string) =>
-    user.click(within(q.getByRole('navigation', { name: 'ניווט ראשי' })).getByRole('button', { name: new RegExp(`^${label}`) }));
+    user.click(within(q.getByRole('navigation', { name: 'ניווט ראשי' })).getByRole('button', { name: new RegExp(`^${label}(\\s*\\d+)?$`) }));
   const card = (text: string) => q.getByText(text, { exact: true }).closest('[title="לחיצה כפולה לעריכה"]') as HTMLElement;
   return { user, q, store, goTo, card };
 }
@@ -181,7 +185,7 @@ describe('forces, incidents and agencies', () => {
 
   it('switching an agency to phone requires a valid number', async () => {
     const { user, q, goTo, card } = await openStation();
-    await goTo('גורמי חוץ');
+    await goTo('כוחות חבירים');
     await user.dblClick(q.getByText('כבאות והצלה'));
     await user.selectOptions(q.getByLabelText('אמצעי קשר'), 'phone');
     const phone = q.getByLabelText('מספר טלפון *');
@@ -369,6 +373,37 @@ describe('everything is editable', () => {
     await waitFor(() => expect(b.q.getByRole('button', { name: 'נשר 1' })).toHaveStyle({ left: '20%', top: '80%' }));
   });
 
+  it('map: mark a parking lot from the list with one click on the map; layers hide and show; routes take their status colour', async () => {
+    const a = await openStation('עמדה א');
+    const b = await openStation('עמדה ב');
+    await a.goTo('מפה טקטית');
+    await b.goTo('מפה טקטית');
+    const map = a.q.getByTestId('tactical-map');
+    map.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1600, height: 900, right: 1600, bottom: 900, x: 0, y: 0, toJSON() {} });
+
+    await a.user.click(a.q.getByRole('button', { name: 'סימון במפה: חניון מנחת' }));
+    expect(a.q.getByText(/לחיצה על המפה לסימון: חניון מנחת/)).toBeInTheDocument();
+    fireEvent.click(map, { clientX: 1000, clientY: 774 });
+
+    await waitFor(() => expect(server.core.getState().parkingLots.find((p) => p.name === 'מנחת')!.mapPos).toEqual({ x: 62.5, y: 86 }));
+    expect(await b.q.findByRole('button', { name: 'חניון מנחת' })).toHaveStyle({ left: '62.5%', top: '86%' });
+    expect(a.q.queryByRole('button', { name: 'סימון במפה: חניון מנחת' })).toBeNull();
+    // Selected after marking: the details show its grid square
+    expect(a.q.getByText('ד-6')).toBeInTheDocument();
+
+    // Layers
+    const layer = (name: string) => within(a.q.getByRole('group', { name: 'שכבות מפה' })).getByRole('button', { name });
+    await a.user.click(layer('חניונים'));
+    expect(a.q.queryByRole('button', { name: 'חניון מנחת' })).toBeNull();
+    await a.user.click(layer('כוחות'));
+    expect(a.q.queryByRole('button', { name: 'נשר 1' })).toBeNull();
+    await a.user.click(layer('חניונים'));
+    expect(a.q.getByRole('button', { name: 'חניון מנחת' })).toBeInTheDocument();
+
+    // Route 35 is drawn in its status: partial in the demo data
+    expect(map.querySelector('[data-route="R-35"]')).toHaveAttribute('data-status', 'partial');
+  });
+
   it('routes: closing a route updates the map board and the KPI card', async () => {
     const { user, q, goTo } = await openStation();
     await goTo('מפה טקטית');
@@ -382,26 +417,116 @@ describe('everything is editable', () => {
     expect(kpi).toHaveTextContent('ציר 60 סגור');
   });
 
-  it('LPR alerts: a new alert raises the count and alerts the other station; handling lowers it', async () => {
+  it('parking: one click marks a lot full at one station; the tile and the other station follow', async () => {
     const a = await openStation('עמדה א');
     const b = await openStation('עמדה ב');
-    const kpi = () => a.q.getByText('התראות LPR').closest('button')!;
-    // The big number on the card (exact match: the card's other lines contain digits too)
-    const count = () => within(kpi()).queryByText(/^\d+$/)?.textContent;
-    expect(count()).toBe('3');
+    const tile = (st: typeof a) => st.q.getByRole('button', { name: /תמונת מצב חניונים/ });
+    expect(tile(a)).toHaveTextContent('7/7');
+    expect(tile(a)).toHaveTextContent('כל החניונים פנויים');
 
-    await a.user.click(kpi());
+    await a.user.click(tile(a));
     const dialog = within(a.q.getByRole('dialog'));
-    await a.user.click(dialog.getByRole('button', { name: /הוספת התראת LPR/ }));
-    await a.user.type(dialog.getByLabelText('מספר רישוי *'), '55-666-77');
-    await a.user.type(dialog.getByLabelText('סיבה *'), 'רכב גנוב{Enter}');
+    const lot = (name: string) => dialog.getByText(name, { exact: true }).closest('[data-lot]') as HTMLElement;
+    await a.user.click(within(lot('מנחת')).getByRole('button', { name: 'מלא' }));
 
-    await waitFor(() => expect(count()).toBe('4'));
-    expect(await b.q.findByText('עמדה א: התראת LPR: 55-666-77 - רכב גנוב')).toBeInTheDocument();
+    await waitFor(() => expect(tile(a)).toHaveTextContent('6/7'));
+    expect(tile(a)).toHaveTextContent('מלאים: מנחת');
+    expect(within(lot('מנחת')).getByRole('button', { name: 'מלא' })).toHaveAttribute('aria-pressed', 'true');
+    // The other station: alerted, and its tile agrees
+    expect(await b.q.findByText('עמדה א: חניון מנחת מלא')).toBeInTheDocument();
+    await waitFor(() => expect(tile(b)).toHaveTextContent('מלאים: מנחת'));
 
-    const row = (await dialog.findByText('55-666-77')).closest('[title="לחיצה כפולה לעריכה"]') as HTMLElement;
-    await a.user.click(within(row).getByRole('button', { name: /טופל/ }));
-    await waitFor(() => expect(count()).toBe('3'));
+  });
+
+  it('parking occupancy: percent per lot, the tile steps green → yellow → orange → red, and 90% sounds the alarm', async () => {
+    const a = await openStation('עמדה א');
+    const b = await openStation('עמדה ב');
+    const tile = (st: typeof a) => st.q.getByRole('button', { name: /תמונת מצב חניונים/ });
+    const toneOf = (st: typeof a) => tile(st).className;
+    await a.user.click(tile(a));
+    const dialog = within(a.q.getByRole('dialog'));
+    const lot = (name: string) => dialog.getByText(name, { exact: true }).closest('[data-lot]') as HTMLElement;
+
+    // Enter the capacity and the vehicles so far (double-click)
+    await a.user.dblClick(lot('מאוחדת'));
+    expect(dialog.getByLabelText('שם החניון *')).toHaveValue('מאוחדת');
+    await a.user.type(dialog.getByLabelText('קיבולת רכבים בחניון *'), '100');
+    await a.user.clear(dialog.getByLabelText('כמה רכבים עד עכשיו'));
+    await a.user.type(dialog.getByLabelText('כמה רכבים עד עכשיו'), '20');
+    expect(dialog.getByText('תפוסה: 20%')).toBeInTheDocument();
+    await a.user.click(dialog.getByRole('button', { name: 'שמירה' }));
+
+    await waitFor(() => expect(within(lot('מאוחדת')).getByTestId('lot-percent')).toHaveTextContent('20%'));
+    await waitFor(() => expect(tile(a)).toHaveTextContent('20%'));
+    expect(tile(a)).toHaveTextContent('20/100 רכבים · 80 מקומות פנויים');
+    expect(toneOf(a)).toContain('emerald');
+
+    // Quick update on the card: type and Enter
+    const count = () => within(lot('מאוחדת')).getByLabelText('רכבים כרגע במאוחדת');
+    const setCount = async (n: number) => {
+      await a.user.clear(count());
+      await a.user.type(count(), `${n}{Enter}`);
+    };
+    await setCount(50);
+    await waitFor(() => expect(toneOf(a)).toContain('yellow'));
+    await setCount(75);
+    await waitFor(() => expect(toneOf(a)).toContain('orange'));
+    expect(playParkingAlarm).not.toHaveBeenCalled();
+
+    // 89 → still orange; + reaches 90%: red at both stations, the alarm sounds at each, once
+    await setCount(89);
+    await waitFor(() => expect(tile(a)).toHaveTextContent('89%'));
+    await a.user.click(within(lot('מאוחדת')).getByRole('button', { name: 'עוד רכב במאוחדת' }));
+    await waitFor(() => expect(toneOf(a)).toContain('red'));
+    await waitFor(() => expect(toneOf(b)).toContain('red'));
+    expect(playParkingAlarm).toHaveBeenCalledTimes(2);
+    // The lot and the overall picture crossed together: one alarm, one message naming both
+    expect(await a.q.findByText('חניון מאוחדת הגיע ל-90% · תפוסת החניונים הגיעה ל-90%')).toBeInTheDocument();
+    // Staying red does not repeat it
+    await a.user.click(within(lot('מאוחדת')).getByRole('button', { name: 'עוד רכב במאוחדת' }));
+    await waitFor(() => expect(tile(a)).toHaveTextContent('91%'));
+    expect(playParkingAlarm).toHaveBeenCalledTimes(2);
+
+    // A count above the capacity is not sent
+    await setCount(150);
+    await waitFor(() => expect(count()).toHaveValue('91'));
+  });
+
+  it('parking: a single lot reaching 90% sounds the alarm even while the overall occupancy is low', async () => {
+    const a = await openStation('עמדה א');
+    const tile = () => a.q.getByRole('button', { name: /תמונת מצב חניונים/ });
+    await a.user.click(tile());
+    const dialog = within(a.q.getByRole('dialog'));
+    const lot = (name: string) => dialog.getByText(name, { exact: true }).closest('[data-lot]') as HTMLElement;
+    const setUp = async (name: string, capacity: number, occupied: number) => {
+      await a.user.dblClick(lot(name));
+      await a.user.type(dialog.getByLabelText('קיבולת רכבים בחניון *'), String(capacity));
+      await a.user.clear(dialog.getByLabelText('כמה רכבים עד עכשיו'));
+      await a.user.type(dialog.getByLabelText('כמה רכבים עד עכשיו'), String(occupied));
+      await a.user.click(dialog.getByRole('button', { name: 'שמירה' }));
+    };
+    await setUp('מאוחדת', 100, 10);
+    await setUp('מנחת', 10, 8);
+    await waitFor(() => expect(tile()).toHaveTextContent('16%'));
+    expect(playParkingAlarm).not.toHaveBeenCalled();
+
+    await a.user.click(within(lot('מנחת')).getByRole('button', { name: 'עוד רכב במנחת' }));
+    expect(await a.q.findByText('חניון מנחת הגיע ל-90%')).toBeInTheDocument();
+    expect(playParkingAlarm).toHaveBeenCalledTimes(1);
+    expect(tile().className).toContain('emerald'); // overall 17%: the tile stays green
+
+    // Staying red, or another lot's change, does not repeat it
+    await a.user.click(within(lot('מנחת')).getByRole('button', { name: 'עוד רכב במנחת' }));
+    await a.user.click(within(lot('מאוחדת')).getByRole('button', { name: 'עוד רכב במאוחדת' }));
+    await waitFor(() => expect(tile()).toHaveTextContent('19%'));
+    expect(playParkingAlarm).toHaveBeenCalledTimes(1);
+
+    // Dropping below 90% and crossing again sounds it again
+    await a.user.click(within(lot('מנחת')).getByRole('button', { name: 'פחות רכב במנחת' }));
+    await a.user.click(within(lot('מנחת')).getByRole('button', { name: 'פחות רכב במנחת' }));
+    await waitFor(() => expect(within(lot('מנחת')).getByTestId('lot-percent')).toHaveTextContent('80%'));
+    await a.user.click(within(lot('מנחת')).getByRole('button', { name: 'עוד רכב במנחת' }));
+    await waitFor(() => expect(playParkingAlarm).toHaveBeenCalledTimes(2));
   });
 
   it('drill scenarios can be added and triggered', async () => {

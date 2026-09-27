@@ -30,5 +30,12 @@ jobs:
       - name: Tests
         run: npm test
 
-      - name: Build
+      - name: Build the file (one HTML file, no network)
         run: npx vite build
+
+      - name: Keep the file as a download
+        uses: actions/upload-artifact@v4
+        with:
+          name: hq-dashboard-file
+          path: dist/*.html
+          if-no-files-found: error

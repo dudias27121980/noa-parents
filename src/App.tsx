@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { AlertLevel, Agency, KpiCard, MilestoneStatus, TacticalIncident, ViewScreen } from './types/tactical';
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { AlertLevel, Agency, KpiCard, MilestoneStatus, ParkingLot, TacticalIncident, ViewScreen } from './types/tactical';
 import { INITIAL_KPIS } from './data/tacticalData';
 import { HeaderNav } from './components/HeaderNav';
 import { HudCenter } from './components/HudCenter';
@@ -12,10 +12,12 @@ import { IncidentsScreen } from './components/IncidentsScreen';
 import { ForcesScreen } from './components/ForcesScreen';
 import { AgenciesScreen } from './components/AgenciesScreen';
 import { MilestoneModal } from './components/MilestoneModal';
-import { LprModal } from './components/LprModal';
+import { ParkingModal } from './components/ParkingModal';
+import { TitleBanner } from './components/TitleBanner';
+import { OccupancyLevel, lotRatio, occupancyLevel, parkingTotals, percent } from './shared/parking';
 import { SimModal } from './components/SimModal';
 import { SCREENS } from './components/screens';
-import { playCompleteChime, playEmergencyAlarm, playRadioChirp } from './utils/audio';
+import { playCompleteChime, playEmergencyAlarm, playParkingAlarm, playRadioChirp } from './utils/audio';
 import { phaseCountdowns } from './utils/schedule';
 import { isBoolean, oneOf, usePersistentState } from './utils/persist';
 import {
@@ -38,12 +40,18 @@ import { Radio, WifiOff } from 'lucide-react';
 // Per-station preferences stay in this browser; everything operational lives on the server
 const isScreen = oneOf<ViewScreen>(SCREENS.map((s) => s.id));
 
+/** Parking tile colour by overall occupancy: green, yellow (50%), dark orange (75%), red (90%) */
+const LEVEL_TONE: Record<OccupancyLevel, KpiCard['tone']> = { green: 'nominal', yellow: 'caution', orange: 'high', red: 'critical' };
+
 interface Props {
   store: SharedStore;
-  onLogout: () => void;
+  /** Omitted in the offline file, which has no login */
+  onLogout?: () => void;
+  /** Extra buttons in the header (the offline file's backup export/import) */
+  headerActions?: ReactNode;
 }
 
-export default function App({ store, onLogout }: Props) {
+export default function App({ store, onLogout, headerActions }: Props) {
   const view = useSyncExternalStore(store.subscribe, store.getView);
 
   if (!view.state) {
@@ -57,7 +65,7 @@ export default function App({ store, onLogout }: Props) {
     );
   }
 
-  return <Dashboard store={store} view={view} state={view.state} onLogout={onLogout} />;
+  return <Dashboard store={store} view={view} state={view.state} onLogout={onLogout} headerActions={headerActions} />;
 }
 
 function Dashboard({
@@ -65,8 +73,9 @@ function Dashboard({
   view,
   state,
   onLogout,
+  headerActions,
 }: Props & { view: StoreView; state: SharedState }) {
-  const { milestones, incidents, units, agencies, lprHits, routes, scenarios, logs, alertLevel, mainFrequency, shift, hqName } =
+  const { milestones, incidents, units, agencies, parkingLots, routes, scenarios, logs, alertLevel, mainFrequency, shift, hqName } =
     state;
   const online = view.status === 'online';
   // Wall display: the whole working area is view-only (the server refuses changes too)
@@ -90,7 +99,7 @@ function Dashboard({
   // Store the id, not a copy, so the modal always shows the current row (including other stations' edits)
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
   const selectedMilestone = milestones.find((m) => m.id === selectedMilestoneId) ?? null;
-  const [isLprModalOpen, setIsLprModalOpen] = useState(false);
+  const [isParkingModalOpen, setIsParkingModalOpen] = useState(false);
   const [isSimModalOpen, setIsSimModalOpen] = useState(false);
 
   // Target clocks run on the browser clock: countdowns are derived from the schedule each tick
@@ -136,9 +145,19 @@ function Dashboard({
     const personnel = onAir.reduce((sum, u) => sum + u.personnel, 0);
     const deployed = units.filter((u) => u.status === 'deployed').length;
     const connected = agencies.filter((a) => a.status === 'connected').length;
-    const openHits = lprHits
-      .filter((h) => h.status === 'open')
-      .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`));
+    const lotsWithRoom = parkingLots.filter((p) => p.status === 'available' || p.status === 'filling');
+    const namesOf = (status: ParkingLot['status']) =>
+      parkingLots
+        .filter((p) => p.status === status)
+        .map((p) => p.name)
+        .join(', ');
+    const fullLots = namesOf('full');
+    const closedLots = namesOf('closed');
+    const totals = parkingTotals(parkingLots);
+    // The fullest open lot with a capacity
+    const fullest = parkingLots
+      .filter((p) => p.status !== 'closed' && p.capacity > 0)
+      .sort((a, b) => b.occupied / b.capacity - a.occupied / a.capacity)[0];
     const openRoutes = routes.filter((r) => r.status === 'open').length;
     const blockedRoute = routes.find((r) => r.status === 'closed') ?? routes.find((r) => r.status === 'partial');
     const closedRoutes = routes.filter((r) => r.status === 'closed').length;
@@ -146,14 +165,28 @@ function Dashboard({
 
     return INITIAL_KPIS.map((k): KpiCard => {
       switch (k.action) {
-        case 'lpr':
+        case 'parking': {
+          const blocked = [fullLots && `מלאים: ${fullLots}`, closedLots && `סגורים: ${closedLots}`].filter(Boolean).join(' · ');
+          if (totals.ratio === null) {
+            // No capacities entered yet: the status picture only
+            return {
+              ...k,
+              value: `${lotsWithRoom.length}/${parkingLots.length}`,
+              unit: 'פנויים',
+              tone: parkingLots.length && !lotsWithRoom.length ? 'critical' : blocked ? 'warning' : 'nominal',
+              subLabel: blocked || 'כל החניונים פנויים',
+              trend: 'להזנת קיבולת ורכבים: לחיצה על הריבוע',
+            };
+          }
           return {
             ...k,
-            value: String(openHits.length),
-            tone: openHits.length ? 'critical' : 'nominal',
-            subLabel: openHits[0] ? `${openHits[0].plate} - ${openHits[0].camera || openHits[0].reason}` : 'אין התראות פתוחות',
-            trend: openHits[0] ? `אחרונה ${openHits[0].time}` : `${lprHits.length} טופלו`,
+            value: `${percent(totals.ratio)}%`,
+            unit: 'תפוסה',
+            tone: LEVEL_TONE[occupancyLevel(totals.ratio)],
+            subLabel: `${totals.occupied}/${totals.capacity} רכבים · ${totals.free} מקומות פנויים`,
+            trend: blocked || (fullest ? `הכי מלא: ${fullest.name} ${percent(fullest.occupied / fullest.capacity)}%` : ''),
           };
+        }
         case 'forces':
           return { ...k, value: String(personnel), subLabel: `${onAir.length} צוותים בקשר`, trend: `${deployed} פרוסים` };
         case 'routes':
@@ -170,12 +203,40 @@ function Dashboard({
             value: `${connected}/${agencies.length}`,
             subLabel: problemAgency
               ? `${problemAgency.name} ${problemAgency.status === 'disconnected' ? 'מנותק' : 'בתקשורת לקויה'}`
-              : 'כל הגורמים מחוברים',
+              : 'כל הכוחות החבירים מחוברים',
             trend: '',
           };
       }
     });
-  }, [units, agencies, lprHits, routes]);
+  }, [units, agencies, parkingLots, routes]);
+
+  // Parking alarm: five seconds of beeps and a red message when the overall occupancy, or any single open
+  // lot, reaches 90%. Only on the crossing (not when the page opens already red), at every station that
+  // sees it, and one alarm even when several cross in the same change.
+  const parkingRatio = useMemo(() => parkingTotals(parkingLots).ratio, [parkingLots]);
+  const parkingLevel = parkingRatio === null ? null : occupancyLevel(parkingRatio);
+  const redLots = useMemo(
+    () =>
+      parkingLots.filter((p) => {
+        const r = lotRatio(p);
+        return p.status !== 'closed' && r !== null && occupancyLevel(r) === 'red';
+      }),
+    [parkingLots]
+  );
+  const lastParking = useRef({ level: parkingLevel, red: new Set(redLots.map((p) => p.id)) });
+  useEffect(() => {
+    const was = lastParking.current;
+    lastParking.current = { level: parkingLevel, red: new Set(redLots.map((p) => p.id)) };
+    const newlyRed = redLots.filter((p) => !was.red.has(p.id));
+    const overallCrossed = parkingLevel === 'red' && was.level !== 'red';
+    if (!newlyRed.length && !overallCrossed) return;
+    if (audioEnabled) playParkingAlarm();
+    const lines = [
+      ...newlyRed.map((p) => `חניון ${p.name} הגיע ל-${percent(lotRatio(p)!)}%`),
+      overallCrossed ? `תפוסת החניונים הגיעה ל-${percent(parkingRatio!)}%` : '',
+    ].filter(Boolean);
+    showToast(lines.join(' · '), 8000, true);
+  }, [parkingLevel, parkingRatio, redLots, audioEnabled, showToast]);
 
   const unresolvedIncidentsCount = incidents.filter((i) => i.status !== 'resolved').length;
 
@@ -210,7 +271,7 @@ function Dashboard({
     const r = await send({ type: 'demo.reset' });
     if (r.ok) {
       setSelectedMilestoneId(null);
-      showToast('הנתונים אופסו לנתוני ההדגמה בכל העמדות', 3000);
+      showToast('הנתונים אופסו לנתוני ההדגמה', 3000);
     }
   };
 
@@ -285,6 +346,10 @@ function Dashboard({
           <TacticalMapScreen
             units={units}
             routes={routes}
+            incidents={incidents}
+            parkingLots={parkingLots}
+            onPlaceIncident={(id, mapPos) => void send({ type: 'incident.update', id, patch: { mapPos } })}
+            onPlaceLot={(id, mapPos) => void send({ type: 'parking.update', id, patch: { mapPos } })}
             onSelectUnit={(u) => handlePingUnit(u.callSign)}
             onMoveUnit={handleMoveUnit}
             onAddRoute={(fields) => void send({ type: 'route.add', fields })}
@@ -335,6 +400,7 @@ function Dashboard({
 
   return (
     <div className="min-h-screen bg-[#070d19] text-[#dae2fd] font-['Assistant',sans-serif] flex flex-col selection:bg-cyan-500/30 selection:text-cyan-200">
+      <TitleBanner name={hqName} onChange={handleHqNameChange} readOnly={readOnly} />
       {/* Top Universal Command Bar */}
       <HeaderNav
         currentScreen={currentScreen}
@@ -348,13 +414,12 @@ function Dashboard({
         commanderName={shift.commanderName}
         shiftName={shift.shiftName}
         onShiftChange={handleShiftChange}
-        hqName={hqName}
-        onHqNameChange={handleHqNameChange}
         unresolvedIncidentsCount={unresolvedIncidentsCount}
         station={view.you ?? ''}
         stations={view.stations}
         connection={view.status}
         onLogout={onLogout}
+        extraActions={headerActions}
         readOnly={readOnly}
       />
 
@@ -380,10 +445,7 @@ function Dashboard({
 
         <KpiRow
           kpis={kpis}
-          onOpenLprAlert={() => {
-            if (audioEnabled) playEmergencyAlarm();
-            setIsLprModalOpen(true);
-          }}
+          onOpenParking={() => setIsParkingModalOpen(true)}
           onOpenForces={() => setCurrentScreen('forces')}
           onOpenRoutes={() => setCurrentScreen('map')}
           onOpenAgencies={() => setCurrentScreen('agencies')}
@@ -432,13 +494,13 @@ function Dashboard({
         />
       )}
 
-      {isLprModalOpen && (
-        <LprModal
-          hits={lprHits}
-          onAdd={(fields) => void send({ type: 'lpr.add', fields })}
-          onUpdate={(id, patch) => void send({ type: 'lpr.update', id, patch })}
-          onDelete={(id) => void send({ type: 'lpr.delete', id })}
-          onClose={() => setIsLprModalOpen(false)}
+      {isParkingModalOpen && (
+        <ParkingModal
+          lots={parkingLots}
+          onAdd={(fields) => void send({ type: 'parking.add', fields })}
+          onUpdate={(id, patch) => void send({ type: 'parking.update', id, patch })}
+          onDelete={(id) => void send({ type: 'parking.delete', id })}
+          onClose={() => setIsParkingModalOpen(false)}
         />
       )}
 

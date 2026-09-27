@@ -33,18 +33,21 @@ export interface MilestoneTask {
   done: boolean;
 }
 
-export type LprHitStatus = 'open' | 'handled';
+export type ParkingStatus = 'available' | 'filling' | 'full' | 'closed';
 
-/** A licence-plate-recognition alert (camera hit on a watch list) */
-export interface LprHit {
+/** A parking lot in the parking status picture */
+export interface ParkingLot {
   id: string;
-  date: string;
-  time: string;
-  plate: string;
-  vehicle: string;
-  camera: string;
-  reason: string;
-  status: LprHitStatus;
+  name: string;
+  status: ParkingStatus;
+  /** Number of spaces; 0 = not set (then only the status is shown) */
+  capacity: number;
+  occupied: number;
+  note: string;
+  /** Server clock time ("HH:MM:SS") of the last change */
+  updated: string;
+  /** Where it is marked on the tactical map; absent until someone marks it */
+  mapPos?: MapPoint | null;
 }
 
 export type RouteStatus = 'open' | 'partial' | 'closed';
@@ -62,8 +65,9 @@ export interface SimScenario {
   description: string;
 }
 
-export type KpiTone = 'critical' | 'warning' | 'nominal' | 'info';
-export type KpiAction = 'lpr' | 'forces' | 'routes' | 'agencies';
+/** caution (yellow) and high (dark orange): the parking occupancy steps between nominal and critical */
+export type KpiTone = 'critical' | 'high' | 'warning' | 'caution' | 'nominal' | 'info';
+export type KpiAction = 'parking' | 'forces' | 'routes' | 'agencies';
 
 export interface KpiCard {
   id: string;
@@ -94,6 +98,12 @@ export interface TacticalUnit {
   signalStrength: number;
 }
 
+/** A point on the tactical map, in percent (0-100) of its width and height */
+export interface MapPoint {
+  x: number;
+  y: number;
+}
+
 export type IncidentTier = 1 | 2 | 3;
 export type IncidentStatus = 'active' | 'monitoring' | 'resolved';
 
@@ -109,6 +119,8 @@ export interface TacticalIncident {
   details: string;
   status: IncidentStatus;
   assignedUnits: string[];
+  /** Where it is marked on the tactical map; absent until someone marks it */
+  mapPos?: MapPoint | null;
 }
 
 export type AgencyStatus = 'connected' | 'degraded' | 'disconnected';

@@ -1,20 +1,15 @@
-// @vitest-environment node
-import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { openDb } from './db';
+import { describe, expect, it } from 'vitest';
+import { openBrowserDb } from './browserDb';
 import { createCore } from './core';
+import { clockTime } from '../utils/time';
+import { memoryStorage } from '../test/memoryStorage';
+import { DEFAULT_HQ_NAME, PREVIOUS_DEFAULT_HQ_NAME } from '../data/tacticalData';
 
 const NOW = new Date('2026-09-26T10:02:00+03:00');
 const now = () => NOW;
-const dirs: string[] = [];
-const tempDb = () => {
-  const dir = mkdtempSync(join(tmpdir(), 'tactical-'));
-  dirs.push(dir);
-  return join(dir, 'test.db');
-};
-afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
+/** Storage that outlives a core: open it again to simulate closing and reopening the file */
+const tempDb = () => memoryStorage();
+const openDb = (storage: Storage | ':memory:') => openBrowserDb(storage === ':memory:' ? memoryStorage() : storage);
 
 const memCore = () => createCore({ db: openDb(':memory:'), now });
 
@@ -175,16 +170,78 @@ describe('core', () => {
     expect(core.getState().agencies.some((a) => a.id === id)).toBe(false);
   });
 
-  it('LPR: a new alert is critical for every station; it can be handled and deleted', () => {
+  it('parking: the seven lots are there; full or closed alerts the other stations; numbers are checked', () => {
     const core = memCore();
-    const out = core.dispatch('א', { type: 'lpr.add', fields: { plate: '11-222-33', vehicle: '', camera: 'LPR-1', reason: 'רכב גנוב' } });
-    expect(out.notice).toEqual({ level: 'critical', text: 'התראת LPR: 11-222-33 - רכב גנוב' });
-    expect(out.patch!.logs![0].severity).toBe('CRITICAL');
-    const id = out.result.ok ? out.result.id! : '';
-    core.dispatch('א', { type: 'lpr.update', id, patch: { status: 'handled' } });
-    expect(core.getState().lprHits.find((h) => h.id === id)!.status).toBe('handled');
-    core.dispatch('א', { type: 'lpr.delete', id });
-    expect(core.getState().lprHits.some((h) => h.id === id)).toBe(false);
+    expect(core.getState().parkingLots.map((p) => p.name)).toEqual([
+      'יתק"א עליון',
+      'יתק"א תחתון',
+      'מנחת',
+      'מאוחדת',
+      'אלייקים',
+      'חשוף עליון',
+      'עיריה',
+    ]);
+    expect(core.getState().parkingLots.every((p) => p.status === 'available')).toBe(true);
+
+    const full = core.dispatch('א', { type: 'parking.update', id: 'P-3', patch: { status: 'full', note: 'שמור למסוקים' } });
+    expect(full.notice).toEqual({ level: 'info', text: 'חניון מנחת מלא: שמור למסוקים' });
+    expect(full.patch!.logs![0]).toMatchObject({ severity: 'WARNING', action: 'מנחת: פנוי ← מלא (שמור למסוקים)', station: 'א' });
+    expect(core.getState().parkingLots.find((p) => p.id === 'P-3')!.updated).toBe(clockTime(NOW));
+    // Back to available: logged, no alert
+    expect(core.dispatch('א', { type: 'parking.update', id: 'P-3', patch: { status: 'available' } }).notice).toBeUndefined();
+
+    // Capacity and occupancy
+    expect(core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { capacity: 40, occupied: 12 } }).result.ok).toBe(true);
+    const over = core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { occupied: 41 } });
+    expect(over.result).toEqual({ ok: false, error: 'תפוסה (41) גדולה מהקיבולת (40)' });
+    expect(core.getState().parkingLots.find((p) => p.id === 'P-4')!.occupied).toBe(12);
+    expect(core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { capacity: -1 } }).result.ok).toBe(false);
+    expect(core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { status: 'half' as never } }).result.ok).toBe(false);
+
+    // The numbers set the status: 30 of 40 is "filling", 40 of 40 is "full" (and alerts); an explicit close wins
+    const filling = core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { occupied: 30 } });
+    expect(core.getState().parkingLots.find((p) => p.id === 'P-4')!.status).toBe('filling');
+    expect(filling.patch!.logs![0].action).toBe('מאוחדת: פנוי ← מתמלא - 30/40 (75%)');
+    const occ = core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { occupied: 31 } });
+    expect(occ.patch!.logs![0].action).toBe('תפוסת מאוחדת - 31/40 (77%)');
+    expect(occ.notice).toBeUndefined();
+    const full40 = core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { occupied: 40 } });
+    expect(core.getState().parkingLots.find((p) => p.id === 'P-4')!.status).toBe('full');
+    expect(full40.notice).toEqual({ level: 'info', text: 'חניון מאוחדת מלא' });
+    core.dispatch('א', { type: 'parking.update', id: 'P-4', patch: { status: 'closed', occupied: 5 } });
+    expect(core.getState().parkingLots.find((p) => p.id === 'P-4')!.status).toBe('closed');
+
+    // Add, unique names, delete
+    const base = { status: 'available' as const, capacity: 0, occupied: 0, note: '' };
+    expect(core.dispatch('א', { type: 'parking.add', fields: { ...base, name: 'מנחת' } }).result).toEqual({ ok: false, error: 'חניון בשם הזה כבר קיים' });
+    const added = core.dispatch('א', { type: 'parking.add', fields: { ...base, name: 'חניון מערבי', capacity: 100, occupied: 60 } });
+    const id = added.result.ok ? added.result.id! : '';
+    expect(id).toBe('P-8');
+    expect(core.getState().parkingLots.find((p) => p.id === id)).toMatchObject({ status: 'filling', capacity: 100, occupied: 60 });
+    expect(added.patch!.logs![0].action).toBe('חניון נוסף: חניון מערבי - 60/100 (60%)');
+    expect(core.dispatch('א', { type: 'parking.add', fields: { ...base, name: 'עמוס', capacity: 10, occupied: 11 } }).result.ok).toBe(false);
+    core.dispatch('א', { type: 'parking.delete', id });
+    expect(core.getState().parkingLots.some((p) => p.id === id)).toBe(false);
+  });
+
+  it('map: incidents and parking lots are marked, moved and taken off the map; positions are checked', () => {
+    const core = memCore();
+    const inc = core.getState().incidents.find((i) => i.status !== 'resolved')!;
+    const marked = core.dispatch('א', { type: 'incident.update', id: inc.id, patch: { mapPos: { x: 36, y: 70 } } });
+    expect(core.getState().incidents.find((i) => i.id === inc.id)!.mapPos).toEqual({ x: 36, y: 70 });
+    expect(marked.patch!.logs![0]).toMatchObject({ source: 'מפה טקטית', action: `אירוע ${inc.id}: ${inc.title} סומן במפה - ריבוע ז-5` });
+    core.dispatch('א', { type: 'incident.update', id: inc.id, patch: { mapPos: null } });
+    expect(core.getState().incidents.find((i) => i.id === inc.id)!.mapPos).toBeNull();
+
+    const lot = core.dispatch('א', { type: 'parking.update', id: 'P-3', patch: { mapPos: { x: 62.35, y: 86 } } });
+    expect(core.getState().parkingLots.find((p) => p.id === 'P-3')!.mapPos).toEqual({ x: 62.4, y: 86 });
+    expect(lot.patch!.logs![0].action).toBe('חניון מנחת סומן במפה - ריבוע ד-6');
+    // Moving the pin does not touch the lot's numbers or its "updated" time
+    expect(core.getState().parkingLots.find((p) => p.id === 'P-3')!.status).toBe('available');
+
+    for (const bad of [{ x: 101, y: 5 }, { x: 5 }, 'here', { x: Number.NaN, y: 1 }]) {
+      expect(core.dispatch('א', { type: 'parking.update', id: 'P-3', patch: { mapPos: bad as never } }).result.ok).toBe(false);
+    }
   });
 
   it('routes: unique names; closing a route alerts the other stations', () => {
@@ -209,6 +266,20 @@ describe('core', () => {
     expect(core.dispatch('א', { type: 'hqName.set', name: ' ' }).result.ok).toBe(false);
   });
 
+  it('schema 4: an untouched old HQ name becomes the new title; a name the HQ chose is kept', () => {
+    for (const [stored, expected] of [
+      [PREVIOUS_DEFAULT_HQ_NAME, DEFAULT_HQ_NAME],
+      ['חפ"ק מרחב בנימין', 'חפ"ק מרחב בנימין'],
+    ]) {
+      const storage = tempDb();
+      const v3 = openDb(storage);
+      createCore({ db: v3, now });
+      v3.setSingleton('hqName', stored);
+      v3.setSingleton('schemaVersion', 3);
+      expect(createCore({ db: openDb(storage), now }).getState().hqName).toBe(expected);
+    }
+  });
+
   it('upgrades a database from the previous version without losing what was entered', () => {
     const path = tempDb();
     // Build a version-1 database: tasks as plain strings, none of the new collections, no HQ name
@@ -218,7 +289,9 @@ describe('core', () => {
       .getState()
       .milestones.map((m) => ({ ...m, title: m.id === 'MS-04' ? 'נערך לפני השדרוג' : m.title, tasks: m.tasks.map((t) => t.text) }));
     v1.replaceCollection('milestones', oldMilestones as never);
-    (['lprHits', 'routes', 'scenarios'] as const).forEach((c) => v1.replaceCollection(c, []));
+    (['parkingLots', 'routes', 'scenarios'] as const).forEach((c) => v1.replaceCollection(c, []));
+    // A retired collection (the LPR alerts of schema 2) left in the file must not break loading
+    v1.upsert('lprHits' as never, [{ id: 'LPR-1', plate: '12-345-67' } as { id: string }]);
     v1.setSingleton('hqName', '');
     v1.setSingleton('schemaVersion', 1);
     v1.close();
@@ -228,14 +301,15 @@ describe('core', () => {
     expect(ms04.title).toBe('נערך לפני השדרוג');
     expect(ms04.tasks[0]).toEqual({ id: 'MS-04-T1', text: 'תיאום זמני החלפה', done: false });
     expect(upgraded.milestones.find((m) => m.id === 'MS-01')!.tasks.every((t) => t.done)).toBe(true);
-    expect(upgraded.lprHits.length).toBeGreaterThan(0);
+    expect(upgraded.parkingLots.map((p) => p.name)).toContain('מנחת');
+    expect('lprHits' in upgraded).toBe(false);
     expect(upgraded.routes.length).toBeGreaterThan(0);
-    expect(upgraded.hqName).toBe('חפ"ק מרחב יהודה');
+    expect(upgraded.hqName).toBe(DEFAULT_HQ_NAME);
 
     // And it stays upgraded: a second start does not re-seed collections the stations emptied
     const again = openDb(path);
-    again.replaceCollection('lprHits', []);
+    again.replaceCollection('parkingLots', []);
     again.close();
-    expect(createCore({ db: openDb(path), now }).getState().lprHits).toEqual([]);
+    expect(createCore({ db: openDb(path), now }).getState().parkingLots).toEqual([]);
   });
 });

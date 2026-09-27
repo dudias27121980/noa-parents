@@ -3,6 +3,7 @@ import { Crosshair, HardDrive, Maximize2, Minimize2, RotateCcw, Timer, Zap } fro
 import { Panel } from './ui';
 import { playClick } from '../utils/audio';
 import { formatDuration } from '../utils/time';
+import radarSector from '../assets/radar-sector.webp';
 
 interface Props {
   onToggleFullscreen: () => void;
@@ -47,19 +48,33 @@ export function RadarControls({
       </Panel>
 
       <Panel title="מכ״ם גזרה" icon={<Crosshair size={16} />}>
-        <div className="relative mx-auto aspect-square w-full max-w-[220px] overflow-hidden rounded-full border border-cyan-700/60 bg-[#06101f]">
+        <div className="relative mx-auto aspect-square w-full max-w-[220px] overflow-hidden rounded-full border border-cyan-500/60 bg-[#06101f] shadow-[0_0_18px_rgba(34,211,238,0.18)]">
+          {/* Satellite image of the sector (Hebron - Kiryat Arba), darkened and tinted so the overlay stays readable */}
+          <img
+            src={radarSector}
+            alt=""
+            aria-hidden
+            draggable={false}
+            className="absolute inset-0 h-full w-full select-none object-cover"
+            style={{ filter: 'grayscale(0.35) saturate(0.85) brightness(0.6) contrast(1.2)' }}
+          />
+          <span className="absolute inset-0 bg-cyan-950/30 mix-blend-multiply" />
+          <span
+            className="absolute inset-0"
+            style={{ background: 'radial-gradient(circle, transparent 45%, rgba(6,16,31,0.55) 75%, rgba(6,16,31,0.92) 100%)' }}
+          />
           {[25, 50, 75].map((r) => (
             <span
               key={r}
-              className="absolute rounded-full border border-cyan-800/60"
+              className="absolute rounded-full border border-cyan-300/35"
               style={{ inset: `${r / 2}%` }}
             />
           ))}
-          <span className="absolute inset-x-0 top-1/2 h-px bg-cyan-800/60" />
-          <span className="absolute inset-y-0 left-1/2 w-px bg-cyan-800/60" />
+          <span className="absolute inset-x-0 top-1/2 h-px bg-cyan-300/35" />
+          <span className="absolute inset-y-0 left-1/2 w-px bg-cyan-300/35" />
           <div
             className="radar-sweep absolute inset-0"
-            style={{ background: 'conic-gradient(from 0deg, rgba(34,211,238,0.35), transparent 60deg)' }}
+            style={{ background: 'conic-gradient(from 0deg, rgba(34,211,238,0.4), transparent 60deg)' }}
           />
           {[
             [30, 35, 'bg-red-500'],
@@ -69,10 +84,11 @@ export function RadarControls({
           ].map(([x, y, c], i) => (
             <span
               key={i}
-              className={`absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full ${c}`}
+              className={`absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full ring-2 ring-black/70 ${c}`}
               style={{ left: `${x}%`, top: `${y}%` }}
             />
           ))}
+          <span className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-200 shadow-[0_0_6px_rgba(165,243,252,0.9)]" />
         </div>
       </Panel>
 
@@ -99,10 +115,10 @@ export function RadarControls({
             tone={confirmReset ? 'red' : 'cyan'}
             icon={<RotateCcw size={14} />}
           >
-            {confirmReset ? 'לחץ שוב לאישור - יאפס את כל העמדות' : 'איפוס לנתוני הדגמה'}
+            {confirmReset ? 'לחץ שוב לאישור - יאפס את כל הנתונים' : 'איפוס לנתוני הדגמה'}
           </ControlButton>
           <div className="flex items-center gap-1.5 pt-1 text-[10px] text-slate-500">
-            <HardDrive size={11} /> השינויים נשמרים בשרת ומשותפים לכל העמדות
+            <HardDrive size={11} /> השינויים נשמרים במחשב הזה - לגבות בכפתור ההורדה למעלה
           </div>
         </div>
       </Panel>

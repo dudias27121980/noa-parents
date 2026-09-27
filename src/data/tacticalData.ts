@@ -3,7 +3,7 @@ import {
   AlertLevel,
   KpiCard,
   LogEntry,
-  LprHit,
+  ParkingLot,
   Milestone,
   SimScenario,
   TacticalIncident,
@@ -97,13 +97,13 @@ export const buildDemoMilestones = (loadTime: Date = new Date()): Milestone[] =>
 
 export const INITIAL_KPIS: KpiCard[] = [
   {
-    id: 'kpi-lpr',
-    label: 'התראות LPR',
-    value: '3',
-    subLabel: 'רכב חשוד זוהה בציר 60',
-    trend: '+1 ב-15 דק׳',
-    tone: 'critical',
-    action: 'lpr',
+    id: 'kpi-parking',
+    label: 'תמונת מצב חניונים',
+    value: '7/7',
+    subLabel: 'כל החניונים פנויים',
+    trend: '',
+    tone: 'nominal',
+    action: 'parking',
   },
   {
     id: 'kpi-forces',
@@ -126,7 +126,7 @@ export const INITIAL_KPIS: KpiCard[] = [
   },
   {
     id: 'kpi-agencies',
-    label: 'גורמי חוץ מחוברים',
+    label: 'כוחות חבירים',
     value: '5/6',
     subLabel: 'מד"א בתקשורת לקויה',
     trend: 'סנכרון 30 שנ׳',
@@ -144,6 +144,7 @@ export const buildDemoIncidents = (date: string = isoDate()): TacticalIncident[]
     tierLabel: 'דחוף - סכנת חיים',
     title: 'רכב חשוד זוהה במצלמת LPR',
     location: 'ציר 60, צומת הגוש',
+    mapPos: { x: 65.4, y: 4 },
     details: 'לוחית רישוי תואמת רשימת מעקב. הרכב נע דרומה במהירות גבוהה.',
     status: 'active',
     assignedUnits: ['סיור 21', 'רחפן תרמי'],
@@ -156,6 +157,7 @@ export const buildDemoIncidents = (date: string = isoDate()): TacticalIncident[]
     tierLabel: 'חריג - בבדיקה',
     title: 'דיווח על התקהלות',
     location: 'כניסה צפונית לחברון',
+    mapPos: { x: 50.8, y: 62 },
     details: 'כ-30 איש מתקהלים סמוך למחסום. אין דיווח על אלימות.',
     status: 'monitoring',
     assignedUnits: ['סיור 14'],
@@ -391,13 +393,20 @@ export const DEFAULT_SHIFT = { commanderName: 'נצ"מ כהן', shiftName: "ב'"
 
 export const DEFAULT_ALERT_LEVEL: AlertLevel = 'כוננות ג׳ - מצב מבצעי מוגבר';
 
-export const DEFAULT_HQ_NAME = 'חפ"ק מרחב יהודה';
+export const DEFAULT_HQ_NAME = 'חפ"ק מרחב יהודה - ימי המכפלה סוכות תשפ"ז';
+/** The default before schema 4; a name still equal to it is replaced by the current default */
+export const PREVIOUS_DEFAULT_HQ_NAME = 'חפ"ק מרחב יהודה';
 
-export const buildDemoLprHits = (date: string = isoDate()): LprHit[] => [
-  { id: 'LPR-3', date, time: '07:02:14', camera: 'LPR-60-12 צומת הגוש', plate: '12-345-67', vehicle: 'מאזדה 3 לבנה', reason: 'רשימת מעקב', status: 'open' },
-  { id: 'LPR-2', date, time: '06:57:40', camera: 'LPR-60-09 כניסה צפונית', plate: '12-345-67', vehicle: 'מאזדה 3 לבנה', reason: 'רשימת מעקב', status: 'open' },
-  { id: 'LPR-1', date, time: '06:41:03', camera: 'LPR-35-02 מחסום 300', plate: '89-012-34', vehicle: 'טנדר איסוזו כסוף', reason: 'רכב גנוב', status: 'open' },
-];
+/** The HQ's parking lots. Status only until capacities are entered (capacity 0 = not set) */
+export const INITIAL_PARKING_LOTS: ParkingLot[] = [
+  'יתק"א עליון',
+  'יתק"א תחתון',
+  'מנחת',
+  'מאוחדת',
+  'אלייקים',
+  'חשוף עליון',
+  'עיריה',
+].map((name, i) => ({ id: `P-${i + 1}`, name, status: 'available', capacity: 0, occupied: 0, note: '', updated: '' }));
 
 export const INITIAL_ROUTES: TacticalRoute[] = [
   { id: 'R-60', name: 'ציר 60', status: 'open', note: '' },

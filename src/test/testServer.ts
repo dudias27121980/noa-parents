@@ -1,6 +1,7 @@
-import { openDb } from '../../server/db';
-import { createCore } from '../../server/core';
-import { createHub, Conn } from '../../server/hub';
+import { openBrowserDb } from '../engine/browserDb';
+import { memoryStorage } from './memoryStorage';
+import { createCore } from '../engine/core';
+import { createHub, Conn } from '../engine/hub';
 import { TransportFactory, TransportHandlers } from '../sync/transport';
 
 /**
@@ -8,7 +9,7 @@ import { TransportFactory, TransportHandlers } from '../sync/transport';
  * instead of WebSockets. Messages are JSON round-tripped and delivered asynchronously, like the network.
  */
 export function createTestServer(now?: () => Date) {
-  const db = openDb(':memory:');
+  const db = openBrowserDb(memoryStorage());
   const core = createCore({ db, now });
   const hub = createHub(core);
   const pipes = new Set<{ conn: Conn; h: TransportHandlers; open: boolean }>();

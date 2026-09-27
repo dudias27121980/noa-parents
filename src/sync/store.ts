@@ -1,7 +1,6 @@
 import {
   Action,
   ActionResult,
-  CLOSE_UNAUTHORIZED,
   Notice,
   ServerMessage,
   SharedState,
@@ -10,7 +9,7 @@ import {
 } from '../shared/protocol';
 import { Transport, TransportFactory } from './transport';
 
-export type ConnectionStatus = 'connecting' | 'online' | 'offline' | 'unauthorized';
+export type ConnectionStatus = 'connecting' | 'online' | 'offline';
 
 export interface StoreView {
   /** null until the first snapshot arrives */
@@ -72,15 +71,10 @@ export class SharedStore {
       onMessage: (msg) => {
         if (this.transport === t) this.receive(msg);
       },
-      onClose: (code) => {
+      onClose: () => {
         if (this.transport !== t) return; // an old connection we already replaced
         this.transport = null;
         this.failPending();
-        if (code === CLOSE_UNAUTHORIZED) {
-          this.running = false;
-          this.update({ status: 'unauthorized' });
-          return;
-        }
         this.update({ status: 'offline' });
         if (this.running) {
           this.retryTimer = setTimeout(() => {

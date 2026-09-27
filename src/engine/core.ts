@@ -4,7 +4,9 @@ import {
   IncidentStatus,
   LogEntry,
   LogSeverity,
-  LprHit,
+  MapPoint,
+  ParkingLot,
+  ParkingStatus,
   Milestone,
   MilestoneStatus,
   MilestoneTask,
@@ -13,7 +15,7 @@ import {
   TacticalUnit,
   UnitStatus,
   UnitType,
-} from '../src/types/tactical';
+} from '../types/tactical';
 import {
   Action,
   ActionResult,
@@ -21,22 +23,25 @@ import {
   CollectionName,
   MilestoneFields,
   Notice,
+  ParkingFields,
   SharedState,
   SingletonName,
   StatePatch,
   applyPatch,
-} from '../src/shared/protocol';
+} from '../shared/protocol';
 import {
   AGENCY_STATUS_LABEL,
   INCIDENT_STATUS_LABEL,
+  PARKING_STATUS_LABEL,
   ROUTE_STATUS_LABEL,
   TIER_LABEL,
   UNIT_STATUS_LABEL,
   UNIT_TYPE_LABEL,
-} from '../src/shared/labels';
+} from '../shared/labels';
 import {
   DEFAULT_ALERT_LEVEL,
   DEFAULT_HQ_NAME,
+  PREVIOUS_DEFAULT_HQ_NAME,
   DEFAULT_MAIN_FREQUENCY,
   DEFAULT_SHIFT,
   INITIAL_AGENCIES,
@@ -44,15 +49,17 @@ import {
   INITIAL_SCENARIOS,
   INITIAL_UNITS,
   buildDemoIncidents,
-  buildDemoLprHits,
+  INITIAL_PARKING_LOTS,
   buildDemoLogs,
   buildDemoMilestones,
-} from '../src/data/tacticalData';
-import { STATUS_BADGE, normalizeMilestones } from '../src/utils/schedule';
-import { clockTime, formatDate, isIsoDate, isoDate, parseHHMM } from '../src/utils/time';
-import { nextIdNumber } from '../src/utils/ids';
-import { changedFields } from '../src/shared/diff';
-import { Db } from './db';
+} from '../data/tacticalData';
+import { STATUS_BADGE, normalizeMilestones } from '../utils/schedule';
+import { clockTime, formatDate, isIsoDate, isoDate, parseHHMM } from '../utils/time';
+import { nextIdNumber } from '../utils/ids';
+import { changedFields } from '../shared/diff';
+import { lotRatio, percent, statusForOccupancy } from '../shared/parking';
+import { gridRef } from '../shared/mapGrid';
+import type { Db } from './dbTypes';
 
 export interface Outcome {
   result: ActionResult;
@@ -170,11 +177,15 @@ class Tx {
 
 /* ---------- schema ---------- */
 
-/** 1: first shared server. 2: tasks as {id,text,done}; LPR alerts, routes, drill scenarios, HQ name */
-const SCHEMA_VERSION = 2;
+/**
+ * 1: first shared server. 2: tasks as {id,text,done}; LPR alerts, routes, drill scenarios, HQ name.
+ * 3: parking lots replace the LPR alerts.
+ * 4: the HQ name becomes the page title (untouched old default → the new one).
+ */
+const SCHEMA_VERSION = 4;
 
-/** Upgrades a database from the previous version in place, keeping everything already entered */
-const migrateToV2 = (s: SharedState, fresh: SharedState): SharedState => ({
+/** Upgrades a database from any earlier version in place, keeping everything already entered */
+const migrate = (s: SharedState, fresh: SharedState): SharedState => ({
   ...s,
   milestones: s.milestones.map((m) => ({
     ...m,
@@ -182,14 +193,41 @@ const migrateToV2 = (s: SharedState, fresh: SharedState): SharedState => ({
       typeof t === 'string' ? { id: `${m.id}-T${i + 1}`, text: t, done: m.statusType === 'completed' } : (t as MilestoneTask)
     ),
   })),
-  lprHits: s.lprHits?.length ? s.lprHits : fresh.lprHits,
+  parkingLots: s.parkingLots?.length ? s.parkingLots : fresh.parkingLots,
   routes: s.routes?.length ? s.routes : fresh.routes,
   scenarios: s.scenarios?.length ? s.scenarios : fresh.scenarios,
-  hqName: s.hqName || fresh.hqName,
+  hqName: s.hqName && s.hqName !== PREVIOUS_DEFAULT_HQ_NAME ? s.hqName : fresh.hqName,
 });
 
-const LPR_STATUSES = ['open', 'handled'] as const;
+const PARKING_STATUSES: readonly ParkingStatus[] = ['available', 'filling', 'full', 'closed'];
 const ROUTE_STATUSES: readonly RouteStatus[] = ['open', 'partial', 'closed'];
+
+/** A map position from a station: {x, y} in percent, or null to take it off the map */
+const mapPoint = (v: unknown): MapPoint | null => {
+  if (v === null) return null;
+  const p = obj(v, 'מיקום במפה');
+  return { x: coord(p.x, 'x'), y: coord(p.y, 'y') };
+};
+const mapPosText = (what: string, pos: MapPoint | null | undefined) =>
+  pos ? `${what} סומן במפה - ריבוע ${gridRef(pos)}` : `${what} הוסר מהמפה`;
+
+/** " - 31/40 (77%)" for a lot with a capacity, "" otherwise */
+const occupancyText = (lot: ParkingLot) => {
+  const r = lotRatio(lot);
+  return r === null ? '' : ` - ${lot.occupied}/${lot.capacity} (${percent(r)}%)`;
+};
+
+/** Parking lot fields from a station; `partial` for an update (only the fields sent) */
+const parkingFields = (raw: Record<string, unknown>, partial: boolean): Partial<ParkingFields> => {
+  const has = (k: string) => k in raw || !partial;
+  const out: Partial<ParkingFields> = {};
+  if (has('name')) out.name = str(raw.name, 'שם חניון', { required: true, max: 40 });
+  if (has('status')) out.status = oneOf(raw.status, PARKING_STATUSES, 'מצב');
+  if (has('capacity')) out.capacity = int(raw.capacity ?? 0, 0, 100_000, 'קיבולת');
+  if (has('occupied')) out.occupied = int(raw.occupied ?? 0, 0, 100_000, 'תפוסה');
+  if (has('note')) out.note = str(raw.note ?? '', 'הערה', { max: 200 });
+  return out;
+};
 
 const coord = (v: unknown, field: string) =>
   typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100 ? Math.round(v * 10) / 10 : fail(`מיקום לא תקין: ${field}`);
@@ -204,7 +242,7 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
       incidents: buildDemoIncidents(isoDate(t)),
       units: INITIAL_UNITS,
       agencies: INITIAL_AGENCIES,
-      lprHits: buildDemoLprHits(isoDate(t)),
+      parkingLots: INITIAL_PARKING_LOTS,
       routes: INITIAL_ROUTES,
       scenarios: INITIAL_SCENARIOS,
       logs: buildDemoLogs(isoDate(t)),
@@ -232,11 +270,11 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
     state = seed();
     writeAll(state);
   } else if ((db.getSingleton<number>('schemaVersion') ?? 1) < SCHEMA_VERSION) {
-    state = migrateToV2(state, seed());
+    state = migrate(state, seed());
     const migrated = state;
     db.transaction(() => {
       db.replaceCollection('milestones', migrated.milestones);
-      (['lprHits', 'routes', 'scenarios'] as const).forEach((c) => db.replaceCollection(c, migrated[c]));
+      (['parkingLots', 'routes', 'scenarios'] as const).forEach((c) => db.replaceCollection(c, migrated[c]));
       db.setSingleton('hqName', migrated.hqName);
       db.setSingleton('schemaVersion', SCHEMA_VERSION);
     });
@@ -246,11 +284,11 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
   let incidentSeq = nextIdNumber(state.incidents.map((i) => i.id), 7300);
   let milestoneSeq = nextIdNumber(state.milestones.map((m) => m.id), 100);
   // Other collections: never reuse the number of a deleted record (a station may still have it open)
-  const seqs = {} as Record<'units' | 'agencies' | 'lprHits' | 'routes' | 'scenarios', number>;
+  const seqs = {} as Record<'units' | 'agencies' | 'parkingLots' | 'routes' | 'scenarios', number>;
   const resetSeqs = () => {
     seqs.units = nextIdNumber(state!.units.map((r) => r.id), 10);
     seqs.agencies = nextIdNumber(state!.agencies.map((r) => r.id), 10);
-    seqs.lprHits = nextIdNumber(state!.lprHits.map((r) => r.id), 10);
+    seqs.parkingLots = nextIdNumber(state!.parkingLots.map((r) => r.id), 1);
     seqs.routes = nextIdNumber(state!.routes.map((r) => r.id), 1000);
     seqs.scenarios = nextIdNumber(state!.scenarios.map((r) => r.id), 10);
   };
@@ -375,10 +413,16 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
         if (!Array.isArray(raw.assignedUnits)) fail('כוחות משויכים לא תקינים');
         clean.assignedUnits = (raw.assignedUnits as unknown[]).map((u) => str(u, 'כוח', { max: 50 })).filter(Boolean);
       }
+      if ('mapPos' in raw) clean.mapPos = mapPoint(raw.mapPos);
       const patch = changedFields(target, clean);
       if (Object.keys(patch).length === 0) return;
       const next = { ...target, ...patch };
       tx.upsert('incidents', [next]);
+      // Moving the pin on the map: its own short log line
+      if (Object.keys(patch).length === 1 && 'mapPos' in patch) {
+        tx.log('NOMINAL', 'מפה טקטית', mapPosText(`אירוע ${target.id}: ${next.title}`, next.mapPos));
+        return;
+      }
 
       const notes: string[] = [];
       if (patch.status) notes.push(`סטטוס: ${INCIDENT_STATUS_LABEL[target.status]} ← ${INCIDENT_STATUS_LABEL[patch.status]}`);
@@ -469,8 +513,8 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
       if (next.liaison !== target.liaison) notes.push(`קישור: ${target.liaison || '—'} ← ${next.liaison || '—'}`);
       tx.log(
         next.status === 'disconnected' && statusChanged ? 'WARNING' : 'NOMINAL',
-        'תיאום גורמי חוץ',
-        `עריכת גורם חוץ ${next.name}${notes.length ? ` (${notes.join(', ')})` : ''}`
+        'תיאום כוחות חבירים',
+        `עריכת כוח חביר ${next.name}${notes.length ? ` (${notes.join(', ')})` : ''}`
       );
     },
 
@@ -558,59 +602,66 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
       };
       if (!agency.frequency && !agency.phone) fail('נדרש תדר או מספר טלפון');
       tx.upsert('agencies', [agency]);
-      tx.log('NOMINAL', 'תיאום גורמי חוץ', `גורם חוץ חדש: ${agency.name}`);
+      tx.log('NOMINAL', 'תיאום כוחות חבירים', `כוח חביר חדש: ${agency.name}`);
       return agency.id;
     },
 
     'agency.delete'(tx, a) {
       const target = tx.state.agencies.find((ag) => ag.id === a.id) ?? fail(NOT_FOUND);
       tx.remove('agencies', [target.id]);
-      tx.log('WARNING', 'תיאום גורמי חוץ', `גורם חוץ הוסר: ${target.name}`);
+      tx.log('WARNING', 'תיאום כוחות חבירים', `כוח חביר הוסר: ${target.name}`);
     },
 
-    'lpr.add'(tx, a) {
-      const raw = obj(a.fields, 'התראה');
-      const t = now();
-      const hit: LprHit = {
-        id: newId('lprHits', 'LPR'),
-        date: isoDate(t),
-        time: clockTime(t),
-        plate: str(raw.plate, 'מספר רישוי', { required: true, max: 20 }),
-        vehicle: str(raw.vehicle ?? '', 'רכב', { max: 60 }),
-        camera: str(raw.camera ?? '', 'מצלמה', { max: 80 }),
-        reason: str(raw.reason, 'סיבה', { required: true, max: 60 }),
-        status: 'open',
-      };
-      tx.upsert('lprHits', [hit]);
-      tx.log('CRITICAL', 'מערכת LPR', `התראת LPR: ${hit.plate} (${hit.reason})${hit.camera ? ` - ${hit.camera}` : ''}`);
-      tx.notice = { level: 'critical', text: `התראת LPR: ${hit.plate} - ${hit.reason}` };
-      return hit.id;
+    'parking.add'(tx, a) {
+      const raw = obj(a.fields, 'חניון');
+      const fields = parkingFields(raw, false) as ParkingFields;
+      if (tx.state.parkingLots.some((p) => p.name === fields.name)) fail('חניון בשם הזה כבר קיים');
+      if (fields.capacity > 0 && fields.occupied > fields.capacity) fail(`תפוסה (${fields.occupied}) גדולה מהקיבולת (${fields.capacity})`);
+      const lot: ParkingLot = { id: newId('parkingLots', 'P'), ...fields, updated: clockTime(now()) };
+      lot.status = statusForOccupancy(lot);
+      tx.upsert('parkingLots', [lot]);
+      tx.log('NOMINAL', 'חניונים', `חניון נוסף: ${lot.name}${occupancyText(lot)}`);
+      return lot.id;
     },
 
-    'lpr.update'(tx, a) {
-      const target = tx.state.lprHits.find((h) => h.id === a.id) ?? fail(NOT_FOUND);
+    'parking.update'(tx, a) {
+      const target = tx.state.parkingLots.find((p) => p.id === a.id) ?? fail(NOT_FOUND);
       const raw = obj(a.patch, 'שינויים');
-      const clean: Partial<LprHit> = {};
-      if ('plate' in raw) clean.plate = str(raw.plate, 'מספר רישוי', { required: true, max: 20 });
-      if ('vehicle' in raw) clean.vehicle = str(raw.vehicle, 'רכב', { max: 60 });
-      if ('camera' in raw) clean.camera = str(raw.camera, 'מצלמה', { max: 80 });
-      if ('reason' in raw) clean.reason = str(raw.reason, 'סיבה', { required: true, max: 60 });
-      if ('status' in raw) clean.status = oneOf(raw.status, LPR_STATUSES, 'סטטוס');
+      const clean: Partial<ParkingLot> = parkingFields(raw, true);
+      if ('mapPos' in raw) clean.mapPos = mapPoint(raw.mapPos);
+      if (clean.name && tx.state.parkingLots.some((p) => p.id !== target.id && p.name === clean.name)) fail('חניון בשם הזה כבר קיים');
       const patch = changedFields(target, clean);
       if (Object.keys(patch).length === 0) return;
-      const next = { ...target, ...patch };
-      tx.upsert('lprHits', [next]);
+      if (Object.keys(patch).length === 1 && 'mapPos' in patch) {
+        tx.upsert('parkingLots', [{ ...target, mapPos: patch.mapPos }]);
+        tx.log('NOMINAL', 'מפה טקטית', mapPosText(`חניון ${target.name}`, patch.mapPos));
+        return;
+      }
+      const next: ParkingLot = { ...target, ...patch, updated: clockTime(now()) };
+      if (next.capacity > 0 && next.occupied > next.capacity) fail(`תפוסה (${next.occupied}) גדולה מהקיבולת (${next.capacity})`);
+      // New numbers set the status, unless the station chose one in the same change (e.g. closing the lot)
+      if (!('status' in patch) && ('occupied' in patch || 'capacity' in patch)) next.status = statusForOccupancy(next);
+      tx.upsert('parkingLots', [next]);
+
+      const statusChanged = next.status !== target.status;
+      const blocked = statusChanged && (next.status === 'full' || next.status === 'closed');
+      const numbersChanged = 'occupied' in patch || 'capacity' in patch;
       tx.log(
-        'NOMINAL',
-        'מערכת LPR',
-        patch.status ? `התראת LPR ${next.plate} ${next.status === 'handled' ? 'טופלה' : 'נפתחה מחדש'}` : `עריכת התראת LPR ${next.plate}`
+        blocked ? 'WARNING' : 'NOMINAL',
+        'חניונים',
+        statusChanged
+          ? `${next.name}: ${PARKING_STATUS_LABEL[target.status]} ← ${PARKING_STATUS_LABEL[next.status]}${occupancyText(next)}${next.note ? ` (${next.note})` : ''}`
+          : numbersChanged
+            ? `תפוסת ${next.name}${occupancyText(next)}`
+            : `עדכון חניון ${next.name}`
       );
+      if (blocked) tx.notice = { level: 'info', text: `חניון ${next.name} ${PARKING_STATUS_LABEL[next.status]}${next.note ? `: ${next.note}` : ''}` };
     },
 
-    'lpr.delete'(tx, a) {
-      const target = tx.state.lprHits.find((h) => h.id === a.id) ?? fail(NOT_FOUND);
-      tx.remove('lprHits', [target.id]);
-      tx.log('WARNING', 'מערכת LPR', `התראת LPR נמחקה: ${target.plate}`);
+    'parking.delete'(tx, a) {
+      const target = tx.state.parkingLots.find((p) => p.id === a.id) ?? fail(NOT_FOUND);
+      tx.remove('parkingLots', [target.id]);
+      tx.log('WARNING', 'חניונים', `חניון הוסר: ${target.name}`);
     },
 
     'route.add'(tx, a) {

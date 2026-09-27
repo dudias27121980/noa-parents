@@ -36,7 +36,7 @@ export function SimModal({
   return (
     <ModalShell title="הפעלת תרגיל קיצון" icon={<ShieldAlert size={18} />} onClose={onClose} tone="amber">
       <p className="mb-3 text-xs text-slate-400">
-        הפעלת תרגיל תעלה את רמת הכוננות לפע״מ, תפתח אירוע דרג 1 ותתריע בכל העמדות. לחיצה כפולה על תרחיש לעריכה.
+        הפעלת תרגיל תעלה את רמת הכוננות לפע״מ, תפתח אירוע דרג 1 ותקפיץ התראה. לחיצה כפולה על תרחיש לעריכה.
       </p>
       <div className="flex flex-col gap-2">
         {scenarios.map((s) =>

@@ -1,4 +1,4 @@
-import { Action, ServerMessage, StationInfo } from '../src/shared/protocol';
+import { Action, ServerMessage, StationInfo } from '../shared/protocol';
 import { Core } from './core';
 
 /** One open station connection (a WebSocket in production, an in-memory pipe in tests) */

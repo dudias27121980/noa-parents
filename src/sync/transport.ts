@@ -13,25 +13,3 @@ export interface Transport {
 
 /** Opens one connection; the store calls it again to reconnect */
 export type TransportFactory = (handlers: TransportHandlers) => Transport;
-
-export const webSocketTransport =
-  (token: string): TransportFactory =>
-  (h) => {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`);
-    ws.onopen = () => h.onOpen();
-    ws.onmessage = (e) => {
-      try {
-        h.onMessage(JSON.parse(String(e.data)) as ServerMessage);
-      } catch {
-        /* ignore malformed frames */
-      }
-    };
-    ws.onclose = (e) => h.onClose(e.code);
-    return {
-      send: (msg) => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-      },
-      close: () => ws.close(1000),
-    };
-  };

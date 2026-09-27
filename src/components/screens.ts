@@ -6,6 +6,6 @@ export const SCREENS: { id: ViewScreen; label: string; icon: LucideIcon }[] = [
   { id: 'map', label: 'מפה טקטית', icon: Map },
   { id: 'incidents', label: 'אירועים', icon: Siren },
   { id: 'forces', label: 'כוחות', icon: Users },
-  { id: 'agencies', label: 'גורמי חוץ', icon: Building2 },
+  { id: 'agencies', label: 'כוחות חבירים', icon: Building2 },
   { id: 'log', label: 'יומן מבצעים', icon: FileText },
 ];

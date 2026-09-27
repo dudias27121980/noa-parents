@@ -50,11 +50,11 @@ export function AgenciesScreen({
 
   return (
     <Panel
-      title="תיאום גורמי חוץ"
+      title="תיאום כוחות חבירים"
       icon={<Building2 size={16} />}
       actions={
         <span className="text-xs text-slate-400">
-          <span className="hidden sm:inline">לחיצה כפולה על גורם לעריכה · </span>
+          <span className="hidden sm:inline">לחיצה כפולה על כוח חביר לעריכה · </span>
           <span className="font-mono text-emerald-300">{connected}</span>/{agencies.length} מחוברים
         </span>
       }
@@ -144,7 +144,7 @@ export function AgenciesScreen({
             onCancel={() => setAdding(false)}
           />
         ) : (
-          <AddTile label="הוספת גורם חוץ" disabled={busy} onClick={() => setAdding(true)} />
+          <AddTile label="הוספת כוח חביר" disabled={busy} onClick={() => setAdding(true)} />
         )}
       </div>
     </Panel>
