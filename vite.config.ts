@@ -50,6 +50,8 @@ export default defineConfig({
     cssCodeSplit: false,
     assetsInlineLimit: Number.MAX_SAFE_INTEGER,
     modulePreload: false,
+    // One file by design: everything, including the radar image, is inside it
+    chunkSizeWarningLimit: 2000,
     rollupOptions: {
       output: { inlineDynamicImports: true },
     },

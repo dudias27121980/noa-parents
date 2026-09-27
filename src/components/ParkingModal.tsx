@@ -79,7 +79,7 @@ export function ParkingModal({ lots, onAdd, onUpdate, onDelete, onClose }: Props
         </div>
       )}
       <p className="mt-2 text-[11px] text-slate-500">
-        עדכון מספר הרכבים (הקלדה ו-Enter, או − / +) משנה את אחוז התפוסה מיד בכל העמדות. לחיצה כפולה על חניון לעריכת שם, קיבולת והערה.
+        עדכון מספר הרכבים (הקלדה ו-Enter, או − / +) משנה את אחוז התפוסה מיד. לחיצה כפולה על חניון לעריכת שם, קיבולת והערה.
       </p>
     </ModalShell>
   );

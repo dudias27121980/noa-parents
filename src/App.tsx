@@ -270,7 +270,7 @@ function Dashboard({
     const r = await send({ type: 'demo.reset' });
     if (r.ok) {
       setSelectedMilestoneId(null);
-      showToast('הנתונים אופסו לנתוני ההדגמה בכל העמדות', 3000);
+      showToast('הנתונים אופסו לנתוני ההדגמה', 3000);
     }
   };
 
