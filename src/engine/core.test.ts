@@ -224,6 +224,26 @@ describe('core', () => {
     expect(core.getState().parkingLots.some((p) => p.id === id)).toBe(false);
   });
 
+  it('map: incidents and parking lots are marked, moved and taken off the map; positions are checked', () => {
+    const core = memCore();
+    const inc = core.getState().incidents.find((i) => i.status !== 'resolved')!;
+    const marked = core.dispatch('א', { type: 'incident.update', id: inc.id, patch: { mapPos: { x: 36, y: 70 } } });
+    expect(core.getState().incidents.find((i) => i.id === inc.id)!.mapPos).toEqual({ x: 36, y: 70 });
+    expect(marked.patch!.logs![0]).toMatchObject({ source: 'מפה טקטית', action: `אירוע ${inc.id}: ${inc.title} סומן במפה - ריבוע ז-5` });
+    core.dispatch('א', { type: 'incident.update', id: inc.id, patch: { mapPos: null } });
+    expect(core.getState().incidents.find((i) => i.id === inc.id)!.mapPos).toBeNull();
+
+    const lot = core.dispatch('א', { type: 'parking.update', id: 'P-3', patch: { mapPos: { x: 62.35, y: 86 } } });
+    expect(core.getState().parkingLots.find((p) => p.id === 'P-3')!.mapPos).toEqual({ x: 62.4, y: 86 });
+    expect(lot.patch!.logs![0].action).toBe('חניון מנחת סומן במפה - ריבוע ד-6');
+    // Moving the pin does not touch the lot's numbers or its "updated" time
+    expect(core.getState().parkingLots.find((p) => p.id === 'P-3')!.status).toBe('available');
+
+    for (const bad of [{ x: 101, y: 5 }, { x: 5 }, 'here', { x: Number.NaN, y: 1 }]) {
+      expect(core.dispatch('א', { type: 'parking.update', id: 'P-3', patch: { mapPos: bad as never } }).result.ok).toBe(false);
+    }
+  });
+
   it('routes: unique names; closing a route alerts the other stations', () => {
     const core = memCore();
     expect(core.dispatch('א', { type: 'route.add', fields: { name: 'ציר 60', status: 'open', note: '' } }).result.ok).toBe(false);

@@ -373,6 +373,37 @@ describe('everything is editable', () => {
     await waitFor(() => expect(b.q.getByRole('button', { name: 'נשר 1' })).toHaveStyle({ left: '20%', top: '80%' }));
   });
 
+  it('map: mark a parking lot from the list with one click on the map; layers hide and show; routes take their status colour', async () => {
+    const a = await openStation('עמדה א');
+    const b = await openStation('עמדה ב');
+    await a.goTo('מפה טקטית');
+    await b.goTo('מפה טקטית');
+    const map = a.q.getByTestId('tactical-map');
+    map.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1600, height: 900, right: 1600, bottom: 900, x: 0, y: 0, toJSON() {} });
+
+    await a.user.click(a.q.getByRole('button', { name: 'סימון במפה: חניון מנחת' }));
+    expect(a.q.getByText(/לחיצה על המפה לסימון: חניון מנחת/)).toBeInTheDocument();
+    fireEvent.click(map, { clientX: 1000, clientY: 774 });
+
+    await waitFor(() => expect(server.core.getState().parkingLots.find((p) => p.name === 'מנחת')!.mapPos).toEqual({ x: 62.5, y: 86 }));
+    expect(await b.q.findByRole('button', { name: 'חניון מנחת' })).toHaveStyle({ left: '62.5%', top: '86%' });
+    expect(a.q.queryByRole('button', { name: 'סימון במפה: חניון מנחת' })).toBeNull();
+    // Selected after marking: the details show its grid square
+    expect(a.q.getByText('ד-6')).toBeInTheDocument();
+
+    // Layers
+    const layer = (name: string) => within(a.q.getByRole('group', { name: 'שכבות מפה' })).getByRole('button', { name });
+    await a.user.click(layer('חניונים'));
+    expect(a.q.queryByRole('button', { name: 'חניון מנחת' })).toBeNull();
+    await a.user.click(layer('כוחות'));
+    expect(a.q.queryByRole('button', { name: 'נשר 1' })).toBeNull();
+    await a.user.click(layer('חניונים'));
+    expect(a.q.getByRole('button', { name: 'חניון מנחת' })).toBeInTheDocument();
+
+    // Route 35 is drawn in its status: partial in the demo data
+    expect(map.querySelector('[data-route="R-35"]')).toHaveAttribute('data-status', 'partial');
+  });
+
   it('routes: closing a route updates the map board and the KPI card', async () => {
     const { user, q, goTo } = await openStation();
     await goTo('מפה טקטית');

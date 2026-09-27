@@ -346,6 +346,10 @@ function Dashboard({
           <TacticalMapScreen
             units={units}
             routes={routes}
+            incidents={incidents}
+            parkingLots={parkingLots}
+            onPlaceIncident={(id, mapPos) => void send({ type: 'incident.update', id, patch: { mapPos } })}
+            onPlaceLot={(id, mapPos) => void send({ type: 'parking.update', id, patch: { mapPos } })}
             onSelectUnit={(u) => handlePingUnit(u.callSign)}
             onMoveUnit={handleMoveUnit}
             onAddRoute={(fields) => void send({ type: 'route.add', fields })}

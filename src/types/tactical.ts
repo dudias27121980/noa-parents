@@ -46,6 +46,8 @@ export interface ParkingLot {
   note: string;
   /** Server clock time ("HH:MM:SS") of the last change */
   updated: string;
+  /** Where it is marked on the tactical map; absent until someone marks it */
+  mapPos?: MapPoint | null;
 }
 
 export type RouteStatus = 'open' | 'partial' | 'closed';
@@ -96,6 +98,12 @@ export interface TacticalUnit {
   signalStrength: number;
 }
 
+/** A point on the tactical map, in percent (0-100) of its width and height */
+export interface MapPoint {
+  x: number;
+  y: number;
+}
+
 export type IncidentTier = 1 | 2 | 3;
 export type IncidentStatus = 'active' | 'monitoring' | 'resolved';
 
@@ -111,6 +119,8 @@ export interface TacticalIncident {
   details: string;
   status: IncidentStatus;
   assignedUnits: string[];
+  /** Where it is marked on the tactical map; absent until someone marks it */
+  mapPos?: MapPoint | null;
 }
 
 export type AgencyStatus = 'connected' | 'degraded' | 'disconnected';

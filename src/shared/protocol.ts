@@ -53,7 +53,7 @@ export type MilestoneFields = Pick<
 >;
 export type MilestonePatch = Partial<MilestoneFields>;
 export type IncidentPatch = Partial<
-  Pick<TacticalIncident, 'title' | 'location' | 'details' | 'tier' | 'tierLabel' | 'status' | 'assignedUnits'>
+  Pick<TacticalIncident, 'title' | 'location' | 'details' | 'tier' | 'tierLabel' | 'status' | 'assignedUnits' | 'mapPos'>
 >;
 export type UnitFields = Pick<TacticalUnit, 'callSign' | 'type' | 'status' | 'commander' | 'personnel' | 'sector'>;
 /** x/y: map position in percent (dragging a unit on the map) */
@@ -62,7 +62,7 @@ export type AgencyFields = Pick<Agency, 'name' | 'role' | 'liaison' | 'frequency
 export type AgencyPatch = Partial<AgencyFields>;
 export type TaskPatch = Partial<Pick<MilestoneTask, 'text' | 'done'>>;
 export type ParkingFields = Pick<ParkingLot, 'name' | 'status' | 'capacity' | 'occupied' | 'note'>;
-export type ParkingPatch = Partial<ParkingFields>;
+export type ParkingPatch = Partial<ParkingFields & Pick<ParkingLot, 'mapPos'>>;
 export type RouteFields = Pick<TacticalRoute, 'name' | 'status' | 'note'>;
 export type RoutePatch = Partial<RouteFields>;
 export type ScenarioFields = Pick<SimScenario, 'name' | 'description'>;

@@ -4,6 +4,7 @@ import {
   IncidentStatus,
   LogEntry,
   LogSeverity,
+  MapPoint,
   ParkingLot,
   ParkingStatus,
   Milestone,
@@ -57,6 +58,7 @@ import { clockTime, formatDate, isIsoDate, isoDate, parseHHMM } from '../utils/t
 import { nextIdNumber } from '../utils/ids';
 import { changedFields } from '../shared/diff';
 import { lotRatio, percent, statusForOccupancy } from '../shared/parking';
+import { gridRef } from '../shared/mapGrid';
 import type { Db } from './dbTypes';
 
 export interface Outcome {
@@ -199,6 +201,15 @@ const migrate = (s: SharedState, fresh: SharedState): SharedState => ({
 
 const PARKING_STATUSES: readonly ParkingStatus[] = ['available', 'filling', 'full', 'closed'];
 const ROUTE_STATUSES: readonly RouteStatus[] = ['open', 'partial', 'closed'];
+
+/** A map position from a station: {x, y} in percent, or null to take it off the map */
+const mapPoint = (v: unknown): MapPoint | null => {
+  if (v === null) return null;
+  const p = obj(v, 'מיקום במפה');
+  return { x: coord(p.x, 'x'), y: coord(p.y, 'y') };
+};
+const mapPosText = (what: string, pos: MapPoint | null | undefined) =>
+  pos ? `${what} סומן במפה - ריבוע ${gridRef(pos)}` : `${what} הוסר מהמפה`;
 
 /** " - 31/40 (77%)" for a lot with a capacity, "" otherwise */
 const occupancyText = (lot: ParkingLot) => {
@@ -402,10 +413,16 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
         if (!Array.isArray(raw.assignedUnits)) fail('כוחות משויכים לא תקינים');
         clean.assignedUnits = (raw.assignedUnits as unknown[]).map((u) => str(u, 'כוח', { max: 50 })).filter(Boolean);
       }
+      if ('mapPos' in raw) clean.mapPos = mapPoint(raw.mapPos);
       const patch = changedFields(target, clean);
       if (Object.keys(patch).length === 0) return;
       const next = { ...target, ...patch };
       tx.upsert('incidents', [next]);
+      // Moving the pin on the map: its own short log line
+      if (Object.keys(patch).length === 1 && 'mapPos' in patch) {
+        tx.log('NOMINAL', 'מפה טקטית', mapPosText(`אירוע ${target.id}: ${next.title}`, next.mapPos));
+        return;
+      }
 
       const notes: string[] = [];
       if (patch.status) notes.push(`סטטוס: ${INCIDENT_STATUS_LABEL[target.status]} ← ${INCIDENT_STATUS_LABEL[patch.status]}`);
@@ -609,10 +626,17 @@ export function createCore({ db, now = () => new Date() }: { db: Db; now?: () =>
 
     'parking.update'(tx, a) {
       const target = tx.state.parkingLots.find((p) => p.id === a.id) ?? fail(NOT_FOUND);
-      const clean = parkingFields(obj(a.patch, 'שינויים'), true);
+      const raw = obj(a.patch, 'שינויים');
+      const clean: Partial<ParkingLot> = parkingFields(raw, true);
+      if ('mapPos' in raw) clean.mapPos = mapPoint(raw.mapPos);
       if (clean.name && tx.state.parkingLots.some((p) => p.id !== target.id && p.name === clean.name)) fail('חניון בשם הזה כבר קיים');
       const patch = changedFields(target, clean);
       if (Object.keys(patch).length === 0) return;
+      if (Object.keys(patch).length === 1 && 'mapPos' in patch) {
+        tx.upsert('parkingLots', [{ ...target, mapPos: patch.mapPos }]);
+        tx.log('NOMINAL', 'מפה טקטית', mapPosText(`חניון ${target.name}`, patch.mapPos));
+        return;
+      }
       const next: ParkingLot = { ...target, ...patch, updated: clockTime(now()) };
       if (next.capacity > 0 && next.occupied > next.capacity) fail(`תפוסה (${next.occupied}) גדולה מהקיבולת (${next.capacity})`);
       // New numbers set the status, unless the station chose one in the same change (e.g. closing the lot)
