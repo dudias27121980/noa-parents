@@ -32,7 +32,7 @@ jobs:
           node -e '
             const ws = new WebSocket("wss://" + process.env.SITE + "/ws?token=invalid");
             const t0 = Date.now();
-            ws.onopen = () => console.log("open after", Date.now() - t0, "ms");
+            ws.onopen = () => { console.log("open after", Date.now() - t0, "ms"); ws.send(JSON.stringify({ t: "hello" })); };
             ws.onmessage = (m) => console.log("message:", String(m.data).slice(0, 80));
             ws.onerror = (e) => console.log("error:", e.message ?? e.type);
             ws.onclose = (e) => { console.log("close code", e.code, "reason", JSON.stringify(e.reason), "after", Date.now() - t0, "ms"); process.exit(e.code === 4001 ? 0 : 1); };

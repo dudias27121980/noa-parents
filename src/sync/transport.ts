@@ -19,7 +19,11 @@ export const webSocketTransport =
   (h) => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`);
-    ws.onopen = () => h.onOpen();
+    ws.onopen = () => {
+      // The server waits for this before sending the snapshot
+      ws.send(JSON.stringify({ t: 'hello' } satisfies ClientMessage));
+      h.onOpen();
+    };
     ws.onmessage = (e) => {
       try {
         h.onMessage(JSON.parse(String(e.data)) as ServerMessage);

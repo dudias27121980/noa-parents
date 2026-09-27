@@ -14,7 +14,12 @@ afterEach(async () => {
   for (const c of cleanups.splice(0).reverse()) await c();
 });
 
-async function start(dbPath?: string, trustProxy = 0, log?: (line: string) => void): Promise<Running & { dir: string }> {
+async function start(
+  dbPath?: string,
+  trustProxy = 0,
+  log?: (line: string) => void,
+  helloGraceMs?: number
+): Promise<Running & { dir: string }> {
   const dir = mkdtempSync(join(tmpdir(), 'tactical-app-'));
   cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   mkdirSync(join(dir, 'dist', 'assets'), { recursive: true });
@@ -28,6 +33,7 @@ async function start(dbPath?: string, trustProxy = 0, log?: (line: string) => vo
     tickMs: 0,
     trustProxy,
     log,
+    helloGraceMs,
   });
   const port = await server.listen(0, '127.0.0.1');
   let stopped = false;
@@ -44,9 +50,10 @@ async function start(dbPath?: string, trustProxy = 0, log?: (line: string) => vo
 const login = (url: string, station: string, code: string) =>
   fetch(`${url}/api/login`, { method: 'POST', body: JSON.stringify({ station, code }), headers: { 'Content-Type': 'application/json' } });
 
-/** A raw WebSocket client that records every message */
-function connect(port: number, token: string) {
+/** A raw WebSocket client that records every message; like the app, it opens with a hello unless told not to */
+function connect(port: number, token: string, { hello = true } = {}) {
   const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?token=${encodeURIComponent(token)}`);
+  if (hello) ws.on('open', () => ws.send(JSON.stringify({ t: 'hello' })));
   const messages: ServerMessage[] = [];
   const waiters: { pred: (m: ServerMessage) => boolean; ok: (m: ServerMessage) => void }[] = [];
   ws.on('message', (d) => {
@@ -148,6 +155,29 @@ describe('live sync over WebSocket', () => {
   it('refuses a missing or forged token with the "log in again" code', async () => {
     const { port } = await start();
     expect(await connect(port, 'forged.token').closed).toBe(4001);
+  });
+
+  it('sends nothing until the client says hello (a proxy can lose frames sent with the handshake)', async () => {
+    const { url, port } = await start(undefined, 0, undefined, 60_000);
+    const token = await tokenFor(url, 'עמדה 1');
+    const silent = connect(port, token, { hello: false });
+    await new Promise((ok) => silent.ws.on('open', ok));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(silent.messages).toEqual([]);
+    silent.ws.send(JSON.stringify({ t: 'hello' }));
+    expect((await silent.next((m) => m.t === 'snapshot')).t).toBe('snapshot');
+    // A bad token is refused only after the hello, too
+    const forged = connect(port, 'forged.token');
+    expect(await forged.closed).toBe(4001);
+  });
+
+  it('a page without the hello (older cached app) still gets its snapshot after the grace period', async () => {
+    const { url, port } = await start(undefined, 0, undefined, 200);
+    const c = connect(port, await tokenFor(url, 'עמדה 1'), { hello: false });
+    const t0 = Date.now();
+    await c.next((m) => m.t === 'snapshot');
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(150);
+    expect(await connect(port, 'forged.token', { hello: false }).closed).toBe(4001);
   });
 
   it('logs live connections opening, closing and being refused (the only trace in the host logs)', async () => {

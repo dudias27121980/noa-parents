@@ -30,6 +30,8 @@ export interface ServerOptions {
    */
   trustProxy?: number;
   now?: () => Date;
+  /** How long a new connection waits for the client's hello before the server starts sending anyway */
+  helloGraceMs?: number;
   /** Connection log (live connections opening and closing); omit to stay quiet (tests) */
   log?: (line: string) => void;
 }
@@ -178,6 +180,23 @@ export function createServer(opts: ServerOptions) {
     const identity = auth.verify(url.searchParams.get('token'));
     const from = clientAddress(req, opts.trustProxy ?? 0);
     wss.handleUpgrade(req, socket, head, (ws) => {
+      alive.set(ws, true);
+      ws.on('pong', () => alive.set(ws, true));
+      // Say nothing until the client has spoken: a proxy can lose frames sent in the same instant as the
+      // handshake (seen on Render - the station stays on "connecting"). Pages without the hello start after a grace period.
+      let begun = false;
+      const begin = () => {
+        if (begun) return;
+        begun = true;
+        clearTimeout(grace);
+        if (ws.readyState === WebSocket.OPEN) serve(ws);
+      };
+      const grace = setTimeout(begin, opts.helloGraceMs ?? 1000);
+      ws.once('message', begin);
+      ws.once('close', () => clearTimeout(grace));
+    });
+
+    const serve = (ws: WebSocket) => {
       if (!identity) {
         opts.log?.(`ws rejected (bad or expired token) from ${from}`);
         // Upgrade first, then close with a code the client understands ("log in again")
@@ -191,8 +210,6 @@ export function createServer(opts: ServerOptions) {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
         },
       };
-      alive.set(ws, true);
-      ws.on('pong', () => alive.set(ws, true));
       ws.on('message', (data) => {
         let msg: unknown;
         try {
@@ -214,7 +231,7 @@ export function createServer(opts: ServerOptions) {
       });
       ws.on('error', () => hub.leave(conn));
       hub.join(conn);
-    });
+    };
   });
 
   // Drop connections that stopped answering (laptop lid closed, network cut)

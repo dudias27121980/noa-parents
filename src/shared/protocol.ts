@@ -128,7 +128,8 @@ export interface Notice {
   from: string;
 }
 
-export type ClientMessage = { t: 'action'; reqId: number; action: Action };
+/** `hello` opens every connection: the server sends nothing before it (see server/app.ts) */
+export type ClientMessage = { t: 'hello' } | { t: 'action'; reqId: number; action: Action };
 
 export type ServerMessage =
   | { t: 'snapshot'; state: SharedState; stations: StationInfo[]; you: string; readOnly: boolean }
