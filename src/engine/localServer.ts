@@ -7,10 +7,12 @@ import { TransportFactory } from '../sync/transport';
 export const OFFLINE_STATION = 'עמדה מקומית';
 
 /**
- * The shared server's core and hub, running inside the page: the app talks to it through an
- * in-process pipe instead of a WebSocket, so the dashboard works unchanged with no network at all.
+ * The engine (core and hub), running inside the page: the app talks to it through an in-process
+ * pipe, so the dashboard works with no network at all.
+ * tickMs: the demo telemetry that nudges moving units and drones at random. Off by default: on the
+ * real sector map a force must stay where it was placed.
  */
-export function createLocalServer(db: Db, { tickMs = 3000 }: { tickMs?: number } = {}) {
+export function createLocalServer(db: Db, { tickMs = 0 }: { tickMs?: number } = {}) {
   const core = createCore({ db });
   const hub = createHub(core);
   const ticker = tickMs > 0 ? setInterval(() => hub.tick(), tickMs) : null;

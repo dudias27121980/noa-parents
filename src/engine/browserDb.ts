@@ -49,7 +49,12 @@ const logNumber = (id: string) => (/^LOG-(\d+)$/.exec(id) ? Number(id.slice(4)) 
  * Every change is written through at the end of its transaction. `onError` hears about a failed write
  * (storage full or blocked) - the data is then only in memory until a backup is exported.
  */
-export function openBrowserDb(storage: Storage, onError: (err: unknown) => void = () => {}): Db & { dump(): OfflineDump } {
+export function openBrowserDb(
+  storage: Storage,
+  onError: (err: unknown) => void = () => {},
+  /** After every committed change (the automatic file save listens here) */
+  onChange: () => void = () => {}
+): Db & { dump(): OfflineDump; startedEmpty: boolean } {
   let data: OfflineDump = empty();
   try {
     const raw = storage.getItem(STORAGE_KEY);
@@ -58,6 +63,8 @@ export function openBrowserDb(storage: Storage, onError: (err: unknown) => void 
   } catch (err) {
     onError(err);
   }
+  // Nothing stored in this browser yet (first use, or its data was wiped): the engine seeds demo data
+  const startedEmpty = COLLECTIONS.every((c) => !data.records[c]?.length);
 
   let depth = 0;
   const persist = () => {
@@ -69,6 +76,7 @@ export function openBrowserDb(storage: Storage, onError: (err: unknown) => void 
     } catch (err) {
       onError(err);
     }
+    onChange();
   };
   const write = (fn: () => void) => {
     depth++;
@@ -129,5 +137,6 @@ export function openBrowserDb(storage: Storage, onError: (err: unknown) => void 
     transaction: write,
     close: () => {},
     dump: () => structuredClone(data),
+    startedEmpty,
   };
 }
