@@ -136,7 +136,9 @@ export type ServerMessage =
   | { t: 'patch'; patch: StatePatch }
   | { t: 'result'; reqId: number; result: ActionResult }
   | { t: 'presence'; stations: StationInfo[] }
-  | { t: 'notice'; notice: Notice };
+  | { t: 'notice'; notice: Notice }
+  /** The token was refused: log in again. Sent as a message too, because a proxy can swallow the close code */
+  | { t: 'unauthorized' };
 
 /** WebSocket close codes the client acts on */
 export const CLOSE_UNAUTHORIZED = 4001;

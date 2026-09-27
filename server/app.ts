@@ -5,7 +5,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 import { AddressInfo } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
-import { CLOSE_UNAUTHORIZED } from '../src/shared/protocol';
+import { CLOSE_UNAUTHORIZED, ServerMessage } from '../src/shared/protocol';
 import { openDb } from './db';
 import { createCore } from './core';
 import { createHub, Conn } from './hub';
@@ -142,6 +142,13 @@ export function createServer(opts: ServerOptions) {
     try {
       if (path === '/ca.crt') return serveCa(res);
       if (path === '/api/health') return json(res, 200, { ok: true, stations: hub.stations() });
+      // Whether a stored login is still valid (checked over plain HTTP, which every proxy passes)
+      if (path === '/api/session') {
+        const header = req.headers.authorization ?? '';
+        const identity = auth.verify(header.startsWith('Bearer ') ? header.slice(7) : null);
+        if (!identity) return json(res, 401, { error: 'פג תוקף הכניסה' });
+        return json(res, 200, { station: identity.station, display: identity.role === 'display' });
+      }
       if (path === '/api/login') {
         if (req.method !== 'POST') return json(res, 405, { error: 'Method not allowed' });
         let body: { station?: unknown; code?: unknown; display?: unknown };
@@ -199,7 +206,8 @@ export function createServer(opts: ServerOptions) {
     const serve = (ws: WebSocket) => {
       if (!identity) {
         opts.log?.(`ws rejected (bad or expired token) from ${from}`);
-        // Upgrade first, then close with a code the client understands ("log in again")
+        // Upgrade first, then tell the client to log in again: as a message and as the close code
+        ws.send(JSON.stringify({ t: 'unauthorized' } satisfies ServerMessage));
         ws.close(CLOSE_UNAUTHORIZED, 'unauthorized');
         return;
       }

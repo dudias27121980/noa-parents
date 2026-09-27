@@ -77,8 +77,7 @@ export class SharedStore {
         this.transport = null;
         this.failPending();
         if (code === CLOSE_UNAUTHORIZED) {
-          this.running = false;
-          this.update({ status: 'unauthorized' });
+          this.refused();
           return;
         }
         this.update({ status: 'offline' });
@@ -118,7 +117,23 @@ export class SharedStore {
       case 'notice':
         this.noticeListeners.forEach((l) => l(msg.notice));
         break;
+      case 'unauthorized':
+        this.refused();
+        break;
     }
+  }
+
+  /** The server refused this login (or it was found invalid elsewhere): stop, and ask to log in again */
+  refused() {
+    if (this.view.status === 'unauthorized') return;
+    this.running = false;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    const t = this.transport;
+    this.transport = null;
+    t?.close();
+    this.failPending();
+    this.update({ status: 'unauthorized' });
   }
 
   private failPending() {

@@ -43,6 +43,20 @@ export const lastStationName = () => {
   }
 };
 
+/**
+ * Is a stored login still valid? Asked over plain HTTP: when the live connection cannot open, its
+ * "log in again" answer may never arrive. 'unknown' when the server cannot be reached.
+ */
+export async function checkSession(token: string): Promise<'valid' | 'invalid' | 'unknown'> {
+  try {
+    const res = await fetch('/api/session', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+    if (res.status === 401) return 'invalid';
+    return res.ok ? 'valid' : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 /** How long a login keeps retrying while the server is unreachable (a sleeping host takes up to a minute to wake) */
 export const LOGIN_WAIT_MS = 90_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 3_000, 5_000];

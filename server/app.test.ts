@@ -157,6 +157,25 @@ describe('live sync over WebSocket', () => {
     expect(await connect(port, 'forged.token').closed).toBe(4001);
   });
 
+  it('says "log in again" as a message too, before closing (a proxy can swallow the close code)', async () => {
+    const { port } = await start();
+    const c = connect(port, 'forged.token');
+    await c.closed;
+    expect(c.messages).toEqual([{ t: 'unauthorized' }]);
+  });
+
+  it('answers over HTTP whether a stored login is still valid', async () => {
+    const { url } = await start();
+    const token = await tokenFor(url, 'עמדה 3');
+    const check = (auth?: string) => fetch(`${url}/api/session`, { headers: auth ? { Authorization: auth } : {} });
+    const ok = await check(`Bearer ${token}`);
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ station: 'עמדה 3', display: false });
+    expect((await check(`Bearer ${token.slice(0, -2)}xx`)).status).toBe(401);
+    expect((await check('Bearer forged.token')).status).toBe(401);
+    expect((await check()).status).toBe(401);
+  });
+
   it('sends nothing until the client says hello (a proxy can lose frames sent with the handshake)', async () => {
     const { url, port } = await start(undefined, 0, undefined, 60_000);
     const token = await tokenFor(url, 'עמדה 1');

@@ -5,6 +5,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { SharedStore } from './sync/store';
 import { webSocketTransport } from './sync/transport';
 import { Session, clearSession, loadSession, saveSession } from './sync/session';
+import { guardSession } from './sync/sessionGuard';
 import { useKeepAlive } from './sync/keepAlive';
 import './index.css';
 
@@ -27,8 +28,10 @@ function Root() {
       }
     });
     s.start();
+    const unguard = guardSession(s, session.token);
     setStore(s);
     return () => {
+      unguard();
       unsubscribe();
       s.stop();
       setStore(null);
