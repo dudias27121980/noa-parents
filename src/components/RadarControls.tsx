@@ -1,11 +1,16 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { Crosshair, HardDrive, Maximize2, Minimize2, RotateCcw, Timer, Zap } from 'lucide-react';
 import { Panel } from './ui';
 import { playClick } from '../utils/audio';
 import { formatDuration } from '../utils/time';
-import radarSector from '../assets/radar-sector.webp';
+import sectorMap from '../assets/sector-map.webp';
+import { TacticalUnit } from '../types/tactical';
+import { radarLayout } from '../shared/radar';
+import { UNIT_STATUS } from './TacticalMapScreen';
 
 interface Props {
+  /** The forces shown on the sector radar */
+  units: TacticalUnit[];
   onToggleFullscreen: () => void;
   isFullscreen: boolean;
   onOpenSimModal: () => void;
@@ -17,6 +22,7 @@ interface Props {
 }
 
 export function RadarControls({
+  units,
   onToggleFullscreen,
   isFullscreen,
   onOpenSimModal,
@@ -32,6 +38,8 @@ export function RadarControls({
     const t = setTimeout(() => setConfirmReset(false), 4000);
     return () => clearTimeout(t);
   }, [confirmReset]);
+
+  const radar = useMemo(() => radarLayout(units), [units]);
 
   const withClick = (fn: () => void) => () => {
     if (audioEnabled) playClick();
@@ -49,14 +57,20 @@ export function RadarControls({
 
       <Panel title="מכ״ם גזרה" icon={<Crosshair size={16} />}>
         <div className="relative mx-auto aspect-square w-full max-w-[220px] overflow-hidden rounded-full border border-cyan-500/60 bg-[#06101f] shadow-[0_0_18px_rgba(34,211,238,0.18)]">
-          {/* Satellite image of the sector (Hebron - Kiryat Arba), darkened and tinted so the overlay stays readable */}
+          {/* A round window on the tactical map, centred on the HQ: the dots sit exactly where the forces are */}
           <img
-            src={radarSector}
+            src={sectorMap}
             alt=""
             aria-hidden
             draggable={false}
-            className="absolute inset-0 h-full w-full select-none object-cover"
-            style={{ filter: 'grayscale(0.35) saturate(0.85) brightness(0.6) contrast(1.2)' }}
+            className="absolute max-w-none select-none transition-all duration-700"
+            style={{
+              width: `${radar.image.width}%`,
+              height: `${radar.image.height}%`,
+              left: `${radar.image.left}%`,
+              top: `${radar.image.top}%`,
+              filter: 'grayscale(0.35) saturate(0.85) brightness(0.6) contrast(1.2)',
+            }}
           />
           <span className="absolute inset-0 bg-cyan-950/30 mix-blend-multiply" />
           <span
@@ -76,19 +90,36 @@ export function RadarControls({
             className="radar-sweep absolute inset-0"
             style={{ background: 'conic-gradient(from 0deg, rgba(34,211,238,0.4), transparent 60deg)' }}
           />
-          {[
-            [30, 35, 'bg-red-500'],
-            [62, 28, 'bg-emerald-400'],
-            [70, 64, 'bg-emerald-400'],
-            [40, 72, 'bg-amber-400'],
-          ].map(([x, y, c], i) => (
+          {radar.blips.map(({ unit, left, top, outOfRange }) => (
             <span
-              key={i}
-              className={`absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 animate-pulse rounded-full ring-2 ring-black/70 ${c}`}
-              style={{ left: `${x}%`, top: `${y}%` }}
+              key={unit.id}
+              role="img"
+              aria-label={`${unit.callSign} - ${UNIT_STATUS[unit.status].label}${outOfRange ? ' (מחוץ לטווח)' : ''}`}
+              title={`${unit.callSign} · ${UNIT_STATUS[unit.status].label}${outOfRange ? ' · מחוץ לטווח המכ"ם' : ''}`}
+              data-blip={unit.id}
+              data-out-of-range={outOfRange || undefined}
+              className={`absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition-all duration-700 ${
+                outOfRange ? `border-2 bg-black/60 ${UNIT_STATUS[unit.status].border}` : `ring-2 ring-black/70 ${UNIT_STATUS[unit.status].color}`
+              } ${unit.status === 'offline' ? '' : 'animate-pulse'}`}
+              style={{ left: `${left}%`, top: `${top}%` }}
             />
           ))}
-          <span className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-200 shadow-[0_0_6px_rgba(165,243,252,0.9)]" />
+          <span
+            role="img"
+            aria-label={radar.hq ? `חפ"ק - ${radar.hq.callSign}` : 'מרכז הגזרה'}
+            title={radar.hq ? `חפ"ק · ${radar.hq.callSign}` : 'מרכז הגזרה'}
+            className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-200 shadow-[0_0_6px_rgba(165,243,252,0.9)]"
+          />
+        </div>
+        <div className="mt-2 text-center text-[11px] leading-relaxed text-slate-400">
+          <div>
+            {units.length} כוחות · {units.filter((u) => u.status === 'deployed').length} פרוסים
+            {units.some((u) => u.status === 'offline') && <span className="text-red-300"> · {units.filter((u) => u.status === 'offline').length} ללא קשר</span>}
+          </div>
+          <div className="text-slate-500">
+            מרכז: {radar.hq?.callSign ?? 'מרכז הגזרה'}
+            {radar.blips.some((b) => b.outOfRange) && ' · ○ מחוץ לטווח'}
+          </div>
         </div>
       </Panel>
 
