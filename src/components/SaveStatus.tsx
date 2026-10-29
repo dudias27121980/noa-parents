@@ -51,8 +51,8 @@ export function SaveStatus({
   switch (state.kind) {
     case 'unsupported':
       return (
-        <span className={`${chip} border-slate-700 text-slate-400`} title="שמירה אוטומטית לקובץ עובדת ב-Chrome וב-Edge. כאן: לגבות בכפתור ההורדה.">
-          <HardDrive size={13} /> שמירה לקובץ: Chrome / Edge בלבד
+        <span className={`${chip} border-slate-700 text-slate-400`} title="שמירה אוטומטית לקובץ עובדת רק במחשב, ב-Chrome או ב-Edge (לא בטלפון). כאן: לגבות בכפתור ההורדה.">
+          <HardDrive size={13} /> שמירה לקובץ: במחשב בלבד
         </span>
       );
     case 'needs-permission':
